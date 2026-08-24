@@ -20218,21 +20218,31 @@ void P_PatchInfoTables(void)
 #error "Update P_PatchInfoTables, you big dumb head"
 #endif
 
+	CONS_Printf("PS3DBG: PIT start SPR_FIRSTFREESLOT=%d SPR_LASTFREESLOT=%d\n", (int)SPR_FIRSTFREESLOT, (int)SPR_LASTFREESLOT);
 	// empty out free slots
 	for (i = SPR_FIRSTFREESLOT; i <= SPR_LASTFREESLOT; i++)
 	{
+		if (i == SPR_FIRSTFREESLOT || i % 200 == 0 || i == SPR_LASTFREESLOT)
+			CONS_Printf("PS3DBG: PIT loop i=%d tempname_ptr=%p\n", (int)i, (void*)sprnames[i]);
 		tempname = sprnames[i];
 		tempname[0] = (char)('0' + (char)((i-SPR_FIRSTFREESLOT+1)/1000));
+		if (i == SPR_FIRSTFREESLOT)
+			CONS_Printf("PS3DBG: PIT wrote byte 0 for i=%d\n", (int)i);
 		tempname[1] = (char)('0' + (char)(((i-SPR_FIRSTFREESLOT+1)/100)%10));
 		tempname[2] = (char)('0' + (char)(((i-SPR_FIRSTFREESLOT+1)/10)%10));
 		tempname[3] = (char)('0' + (char)((i-SPR_FIRSTFREESLOT+1)%10));
 		tempname[4] = '\0';
 	}
+	CONS_Printf("PS3DBG: PIT sprnames loop done\n");
 	sprnames[i][0] = '\0'; // i == NUMSPRITES
+	CONS_Printf("PS3DBG: PIT before states memset NUMSTATEFREESLOTS=%d sizeof(state_t)=%d\n", (int)NUMSTATEFREESLOTS, (int)sizeof(state_t));
 	memset(&states[S_FIRSTFREESLOT], 0, sizeof (state_t) * NUMSTATEFREESLOTS);
+	CONS_Printf("PS3DBG: PIT before mobjinfo memset NUMMOBJFREESLOTS=%d sizeof(mobjinfo_t)=%d\n", (int)NUMMOBJFREESLOTS, (int)sizeof(mobjinfo_t));
 	memset(&mobjinfo[MT_FIRSTFREESLOT], 0, sizeof (mobjinfo_t) * NUMMOBJFREESLOTS);
+	CONS_Printf("PS3DBG: PIT before mobjinfo loop MT_FIRSTFREESLOT=%d MT_LASTFREESLOT=%d\n", (int)MT_FIRSTFREESLOT, (int)MT_LASTFREESLOT);
 	for (i = MT_FIRSTFREESLOT; i <= MT_LASTFREESLOT; i++)
 		mobjinfo[i].doomednum = -1;
+	CONS_Printf("PS3DBG: PIT all done\n");
 }
 
 #ifdef ALLOW_RESETDATA

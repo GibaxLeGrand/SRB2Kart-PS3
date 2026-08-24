@@ -1598,6 +1598,7 @@ static boolean SOCK_OpenSocket(void)
 #endif
 }
 
+#ifndef NONET
 static void AddBannedIndex(void)
 {
 	if (numbans >= banned_size)
@@ -1622,6 +1623,7 @@ static void AddBannedIndex(void)
 
 	numbans++;
 }
+#endif
 
 static boolean SOCK_Ban(INT32 node)
 {
@@ -1704,7 +1706,7 @@ static boolean SOCK_SetBanReason(const char *reason)
 static boolean SOCK_SetUnbanTime(time_t timestamp)
 {
 #ifdef NONET
-	(void)reason;
+	(void)timestamp;
 	return false;
 #else
 	banned[numbans - 1].timestamp = timestamp;
@@ -1786,8 +1788,10 @@ static void SOCK_ClearBans(void)
 {
 	numbans = 0;
 	banned_size = 0;
+#ifndef NONET
 	Z_Free(banned);
 	banned = NULL;
+#endif
 }
 
 boolean I_InitTcpNetwork(void)

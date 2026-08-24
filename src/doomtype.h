@@ -123,7 +123,8 @@ typedef long ssize_t;
 #endif
 #ifdef _PSP
 	#include <malloc.h>
-#elif (defined (__unix__) && !defined (MSDOS)) || defined(__APPLE__) || defined (UNIXCOMMON)
+#elif (defined (__unix__) && !defined (MSDOS)) || defined(__APPLE__) || defined (UNIXCOMMON) || defined (_PS3)
+	#include <strings.h>
 	#undef stricmp
 	#define stricmp(x,y) strcasecmp(x,y)
 	#undef strnicmp

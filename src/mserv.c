@@ -74,7 +74,11 @@ consvar_t cv_rendezvousserver = {"holepunchserver", "relay.kartkrew.org", CV_SAV
 consvar_t cv_servername = {"servername", "SRB2Kart server", CV_SAVE|CV_CALL|CV_NOINIT, NULL, Update_parameters, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_server_contact = {"server_contact", "", CV_SAVE|CV_CALL|CV_NOINIT, NULL, Update_parameters, 0, NULL, NULL, 0, 0, NULL};
 
+#ifdef MASTERSERVER
 consvar_t cv_masterserver_update_rate = {"masterserver_update_rate", "15", CV_SAVE|CV_CALL|CV_NOINIT, masterserver_update_rate_cons_t, MasterClient_Ticker, 0, NULL, NULL, 0, 0, NULL};
+#else
+consvar_t cv_masterserver_update_rate = {"masterserver_update_rate", "15", CV_SAVE|CV_CALL|CV_NOINIT, masterserver_update_rate_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
+#endif
 
 consvar_t cv_advertise = {"advertise", "No", CV_NETVAR|CV_CALL|CV_NOINIT, CV_YesNo, Advertise_OnChange, 0, NULL, NULL, 0, 0, NULL};
 
@@ -564,12 +568,13 @@ static void MasterServer_OnChange(void)
 static void
 Advertise_OnChange(void)
 {
-	int different;
-
 	if (cv_advertise.value)
 	{
+#ifdef MASTERSERVER
 		if (serverrunning && netgame)
 		{
+			int different;
+
 			Lock_state();
 			{
 				different = ( MSId != MSRegisteredId );
@@ -581,11 +586,14 @@ Advertise_OnChange(void)
 				RegisterServer();
 			}
 		}
+#endif
 	}
+#ifdef MASTERSERVER
 	else
 	{
 		UnregisterServer();
 	}
+#endif
 
 #ifdef HAVE_DISCORDRPC
 	DRPC_UpdatePresence();

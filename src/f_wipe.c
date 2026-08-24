@@ -38,6 +38,17 @@
 #define NOWIPE // do not enable wipe image post processing for ARM, SH and MIPS CPUs
 #endif
 
+#ifdef _PS3
+#include <stdio.h>
+static void ps3fw(const char *msg)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
+	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
+}
+#else
+#define ps3fw(msg)
+#endif
+
 typedef struct fademask_s {
 	UINT8* mask;
 	UINT16 width, height;
@@ -330,9 +341,12 @@ void F_WipeEndScreen(void)
 		return;
 	}
 #endif
+	ps3fw("W1 F_WipeEndScreen before I_ReadScreen");
 	wipe_scr_end = screens[4];
 	I_ReadScreen(wipe_scr_end);
+	ps3fw("W2 F_WipeEndScreen after I_ReadScreen, before V_DrawBlock");
 	V_DrawBlock(0, 0, 0, vid.width, vid.height, wipe_scr_start);
+	ps3fw("W3 F_WipeEndScreen after V_DrawBlock");
 #endif
 }
 
@@ -348,8 +362,13 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 	tic_t nowtime;
 	UINT8 wipeframe = 0;
 	fademask_t *fmask;
+#ifdef _PS3
+	int ps3wtrace = 1;
+#endif
 
 	paldiv = FixedDiv(257<<FRACBITS, 11<<FRACBITS);
+
+	ps3fw("W4 F_RunWipe entry");
 
 	// Init the wipe
 	WipeInAction = true;
@@ -363,6 +382,9 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 		fmask = F_GetFadeMask(wipetype, wipeframe++);
 		if (!fmask)
 			break;
+#ifdef _PS3
+		if (ps3wtrace) ps3fw("W5 after F_GetFadeMask, before wait loop");
+#endif
 
 		// wait loop
 		while (!((nowtime = I_GetTime()) - lastwipetic))
@@ -371,6 +393,9 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 			I_UpdateTime(cv_timescale.value);
 		}
 		lastwipetic = nowtime;
+#ifdef _PS3
+		if (ps3wtrace) ps3fw("W6 after wait loop, before F_DoWipe");
+#endif
 
 #ifdef HWRENDER
 		if (rendermode == render_opengl)
@@ -379,9 +404,15 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 #endif
 		if (rendermode != render_none) //this allows F_RunWipe to be called in dedicated servers
 			F_DoWipe(fmask);
+#ifdef _PS3
+		if (ps3wtrace) ps3fw("W7 after F_DoWipe, before I_OsPolling");
+#endif
 
 		I_OsPolling();
 		I_UpdateNoBlit();
+#ifdef _PS3
+		if (ps3wtrace) { ps3fw("W8 after I_UpdateNoBlit"); ps3wtrace = 0; }
+#endif
 
 		if (drawMenu)
 		{

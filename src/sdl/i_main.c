@@ -190,7 +190,19 @@ int main(int argc, char **argv)
 
 	// startup SRB2
 	CONS_Printf("Setting up SRB2Kart...\n");
+#ifdef _PS3
+	{
+		FILE *ps3mf = fopen("/dev_hdd0/game/SRB2KART/psdebug6.txt", "a");
+		if (ps3mf) { fputs("M1 before D_SRB2Main", ps3mf); fputc('\n', ps3mf); fflush(ps3mf); fclose(ps3mf); }
+	}
+#endif
 	D_SRB2Main();
+#ifdef _PS3
+	{
+		FILE *ps3mf = fopen("/dev_hdd0/game/SRB2KART/psdebug6.txt", "a");
+		if (ps3mf) { fputs("M2 after D_SRB2Main, before D_SRB2Loop", ps3mf); fputc('\n', ps3mf); fflush(ps3mf); fclose(ps3mf); }
+	}
+#endif
 	CONS_Printf("Entering main game loop...\n");
 	// never return
 	D_SRB2Loop();

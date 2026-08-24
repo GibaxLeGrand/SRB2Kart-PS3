@@ -105,6 +105,15 @@ typedef struct lumpnum_cache_s
 static lumpnum_cache_t lumpnumcache[LUMPNUMCACHESIZE];
 static UINT16 lumpnumcacheindex = 0;
 
+#ifdef _PS3
+static void ps3ww(const char *msg) {
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug5.txt", "a");
+	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
+}
+#else
+#define ps3ww(msg)
+#endif
+
 //===========================================================================
 //                                                                    GLOBALS
 //===========================================================================
@@ -1565,15 +1574,46 @@ void W_ReadLumpPwad(UINT16 wad, UINT16 lump, void *dest)
 void *W_CacheLumpNumPwad(UINT16 wad, UINT16 lump, INT32 tag)
 {
 	lumpcache_t *lumpcache;
+#ifdef _PS3
+	boolean ps3dbg = (wad == 2 && lump >= 890 && lump <= 910);
+	char ps3buf[96];
+#endif
 
 	if (!TestValidLump(wad,lump))
 		return NULL;
 
+#ifdef _PS3
+	if (ps3dbg)
+	{
+		snprintf(ps3buf, sizeof ps3buf, "W1 wad=%d lump=%d after TestValidLump", (int)wad, (int)lump);
+		ps3ww(ps3buf);
+	}
+#endif
+
 	lumpcache = wadfiles[wad]->lumpcache;
 	if (!lumpcache[lump])
 	{
-		void *ptr = Z_Malloc(W_LumpLengthPwad(wad, lump), tag, &lumpcache[lump]);
+		size_t lumplen;
+		void *ptr;
+#ifdef _PS3
+		if (ps3dbg) ps3ww("W2 before W_LumpLengthPwad");
+#endif
+		lumplen = W_LumpLengthPwad(wad, lump);
+#ifdef _PS3
+		if (ps3dbg)
+		{
+			snprintf(ps3buf, sizeof ps3buf, "W3 lumplen=%lu", (unsigned long)lumplen);
+			ps3ww(ps3buf);
+		}
+#endif
+		ptr = Z_Malloc(lumplen, tag, &lumpcache[lump]);
+#ifdef _PS3
+		if (ps3dbg) ps3ww("W4 after Z_Malloc, before W_ReadLumpHeaderPwad");
+#endif
 		W_ReadLumpHeaderPwad(wad, lump, ptr, 0, 0);  // read the lump in full
+#ifdef _PS3
+		if (ps3dbg) ps3ww("W5 after W_ReadLumpHeaderPwad");
+#endif
 	}
 	else
 		Z_ChangeTag(lumpcache[lump], tag);

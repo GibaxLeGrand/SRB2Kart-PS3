@@ -1087,6 +1087,7 @@ void HU_Ticker(void)
 	else
 		hu_showscores = false;
 
+#ifndef NONET
 	if (chat_on)
 	{
 		// count down the scroll timer.
@@ -1114,6 +1115,7 @@ void HU_Ticker(void)
 				HU_removeChatText_Mini();
 		}
 	}
+#endif
 
 	if (cechotimer > 0) --cechotimer;
 	

@@ -1110,6 +1110,10 @@ boolean HSendPacket(INT32 node, boolean reliable, UINT8 acknum, size_t packetlen
 	return true;
 }
 
+#ifdef _PS3
+static void ps3n(const char *msg);
+#endif
+
 //
 // HGetPacket
 // Returns false if no packet is waiting
@@ -1118,10 +1122,20 @@ boolean HSendPacket(INT32 node, boolean reliable, UINT8 acknum, size_t packetlen
 boolean HGetPacket(void)
 {
 	//boolean nodejustjoined;
+#ifdef _PS3
+	static int ps3hgcalls = 0;
+	boolean ps3hgtrace;
+	ps3hgcalls++;
+	ps3hgtrace = (ps3hgcalls <= 500);
+	if (ps3hgtrace) ps3n("H1 HGetPacket entry");
+#endif
 
 	// Get a packet from self
 	if (rebound_tail != rebound_head)
 	{
+#ifdef _PS3
+		if (ps3hgtrace) ps3n("H2 rebound branch taken");
+#endif
 		M_Memcpy(netbuffer, &reboundstore[rebound_tail], reboundsize[rebound_tail]);
 		doomcom->datalength = reboundsize[rebound_tail];
 		if (netbuffer->packettype == PT_NODETIMEOUT)
@@ -1137,10 +1151,21 @@ boolean HGetPacket(void)
 		return true;
 	}
 
+#ifdef _PS3
+	if (ps3hgtrace) ps3n("H3 before netgame check");
+#endif
 	if (!netgame)
+	{
+#ifdef _PS3
+		if (ps3hgtrace) ps3n("H3b netgame is false, returning false");
+#endif
 		return false;
+	}
 
 #ifndef NONET
+#ifdef _PS3
+	if (ps3hgtrace) ps3n("H4 netgame true, entering NONET-guarded net loop (unexpected under NONET=1)");
+#endif
 
 	while(true)
 	{
@@ -1202,6 +1227,9 @@ boolean HGetPacket(void)
 	}
 #endif // ndef NONET
 
+#ifdef _PS3
+	if (ps3hgtrace) ps3n("H5 HGetPacket about to return true");
+#endif
 	return true;
 }
 
@@ -1261,11 +1289,24 @@ void D_SetDoomcom(void)
 // D_CheckNetGame
 // Works out player numbers among the net participants
 //
+#ifdef _PS3
+static int ps3nseq = 0;
+static void ps3n(const char *msg) {
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug7.txt", "a");
+	ps3nseq++;
+	if (f) { fprintf(f, "[#%d] %s\n", ps3nseq, msg); fflush(f); fclose(f); }
+}
+#else
+#define ps3n(msg)
+#endif
+
 boolean D_CheckNetGame(void)
 {
 	boolean ret = false;
 
+	ps3n("N1 D_CheckNetGame entry");
 	InitAck();
+	ps3n("N2 after InitAck");
 	rebound_tail = rebound_head = 0;
 
 	statstarttic = I_GetTime();
@@ -1284,11 +1325,15 @@ boolean D_CheckNetGame(void)
 	multiplayer = false;
 
 	// only dos version with external driver will return true
+	ps3n("N3 before I_InitNetwork");
 	netgame = I_InitNetwork();
+	ps3n("N4 after I_InitNetwork");
 	if (!netgame && !I_NetOpenSocket)
 	{
+		ps3n("N5 before D_SetDoomcom/I_InitTcpNetwork");
 		D_SetDoomcom();
 		netgame = I_InitTcpNetwork();
+		ps3n("N6 after I_InitTcpNetwork");
 	}
 
 	if (netgame)
@@ -1350,6 +1395,7 @@ boolean D_CheckNetGame(void)
 
 	netbuffer = (doomdata_t *)(void *)&doomcom->data;
 	holepunchpacket = (holepunch_t *)(void *)&doomcom->data;
+	ps3n("N7 after doomcom checks, before DEBUGFILE block");
 
 #ifdef DEBUGFILE
 #ifdef _arch_dreamcast
@@ -1377,7 +1423,9 @@ boolean D_CheckNetGame(void)
 #endif
 #endif
 
+	ps3n("N8 before D_ClientServerInit");
 	D_ClientServerInit();
+	ps3n("N9 after D_ClientServerInit");
 
 	return ret;
 }

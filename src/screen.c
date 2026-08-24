@@ -112,7 +112,16 @@ void SCR_SetMode(void)
 	if (!setmodeneeded || WipeInAction)
 		return; // should never happen and don't change it during a wipe, BAD!
 
+#ifdef _PS3
+	// SDL2_PSL1GHT's RSX display buffer setup is not reentrant: video mode
+	// was already configured once in I_StartupGraphics(). Calling
+	// VID_SetMode() again here hangs/crashes the RSX reconfiguration
+	// (same underlying issue as the redundant I_StartupGraphics() call
+	// fixed earlier). Just clear the pending flag and skip the re-set.
+	setmodeneeded = 0;
+#else
 	VID_SetMode(--setmodeneeded);
+#endif
 
 	V_SetPalette(0);
 

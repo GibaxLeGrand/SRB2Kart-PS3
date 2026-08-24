@@ -1336,7 +1336,11 @@ static inline void CL_DrawConnectionStatus(void)
 			}
 
 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-30, 0,
+#ifdef HAVE_CURL
 				va(M_GetText("%s downloading"), ((cl_mode == CL_DOWNLOADHTTPFILES) ? "\x82""HTTP" : "\x85""Direct")));
+#else
+				va(M_GetText("%s downloading"), "\x85""Direct"));
+#endif
 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-22, V_YELLOWMAP,
 				va(M_GetText("\"%s\""), tempname));
 			V_DrawString(BASEVIDWIDTH/2-128, BASEVIDHEIGHT-58, V_20TRANS|V_MONOSPACE,
@@ -3648,7 +3652,9 @@ static void Got_KickCmd(UINT8 **p, INT32 playernum)
 						I_SetUnbanTime(NO_BAN_TIME);
 				}
 
+#ifndef NONET
 				D_SaveBan();
+#endif
 			}
 		}
 	}
@@ -3908,10 +3914,23 @@ static void Joinable_OnChange(void)
 }
 
 // called one time at init
+#ifdef _PS3
+static int ps3csseq = 0;
+static void ps3cs(const char *msg) {
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug8.txt", "a");
+	ps3csseq++;
+	if (f) { fprintf(f, "[#%d] %s\n", ps3csseq, msg); fflush(f); fclose(f); }
+}
+#else
+#define ps3cs(msg)
+#endif
+
 void D_ClientServerInit(void)
 {
+	ps3cs("C1 D_ClientServerInit entry");
 	DEBFILE(va("- - -== SRB2Kart v%d.%d "VERSIONSTRING" debugfile ==- - -\n",
 		VERSION, SUBVERSION));
+	ps3cs("C2 after DEBFILE");
 
 #ifndef NONET
 	COM_AddCommand("getplayernum", Command_GetPlayerNum);
@@ -3948,12 +3967,16 @@ void D_ClientServerInit(void)
 
 	gametic = 0;
 	localgametic = 0;
+	ps3cs("C3 before SV_StopServer");
 
 	// do not send anything before the real begin
 	SV_StopServer();
+	ps3cs("C4 after SV_StopServer, before SV_ResetServer");
 	SV_ResetServer();
+	ps3cs("C5 after SV_ResetServer");
 	if (dedicated)
 		SV_SpawnServer();
+	ps3cs("C6 end of D_ClientServerInit");
 }
 
 static void ResetNode(INT32 node)
@@ -3968,8 +3991,11 @@ static void ResetNode(INT32 node)
 	nodewaiting[node] = 0;
 	playerpernode[node] = 0;
 	sendingsavegame[node] = false;
-	bannednode[node].banid = SIZE_MAX;
-	bannednode[node].timeleft = NO_BAN_TIME;
+	if (bannednode)
+	{
+		bannednode[node].banid = SIZE_MAX;
+		bannednode[node].timeleft = NO_BAN_TIME;
+	}
 }
 
 void SV_ResetServer(void)
@@ -3984,6 +4010,7 @@ void SV_ResetServer(void)
 	neededtic = maketic;
 	tictoclear = maketic;
 
+	ps3cs("C4a before node loop");
 	for (i = 0; i < MAXNETNODES; i++)
 	{
 		ResetNode(i);
@@ -3991,6 +4018,7 @@ void SV_ResetServer(void)
 		// Make sure resynch status doesn't get carried over!
 		SV_InitResynchVars(i);
 	}
+	ps3cs("C4b after node loop, before player loop");
 
 	for (i = 0; i < MAXPLAYERS; i++)
 	{
@@ -4002,6 +4030,7 @@ void SV_ResetServer(void)
 		sprintf(player_names[i], "Player %d", i + 1);
 		adminplayers[i] = -1; // Populate the entire adminplayers array with -1.
 	}
+	ps3cs("C4c after player loop");
 
 	memset(player_name_changes, 0, sizeof player_name_changes);
 
@@ -4619,8 +4648,18 @@ static void HandleServerInfo(SINT8 node)
   */
 static void HandlePacketFromAwayNode(SINT8 node)
 {
+#ifdef _PS3
+	{
+		char ps3anbuf[96];
+		snprintf(ps3anbuf, sizeof ps3anbuf, "A1 HandlePacketFromAwayNode entry node=%d servernode=%d", (int)node, (int)servernode);
+		ps3cs(ps3anbuf);
+	}
+#endif
 	if (node != servernode)
 		DEBFILE(va("Received packet from unknown host %d\n", node));
+#ifdef _PS3
+	ps3cs("A2 after DEBFILE line");
+#endif
 
 // macro for packets that should only be sent by the server
 // if it is NOT from the server, bail out and close the connection!
@@ -4853,6 +4892,9 @@ static void HandlePacketFromAwayNode(SINT8 node)
 			break;
 
 		case PT_CLIENTCMD:
+#ifdef _PS3
+			ps3cs("A3 PT_CLIENTCMD case reached");
+#endif
 			break; // This is not an "unknown packet"
 
 		case PT_SERVERTICS:
@@ -4868,6 +4910,9 @@ static void HandlePacketFromAwayNode(SINT8 node)
 
 	}
 #undef SERVERONLY
+#ifdef _PS3
+	ps3cs("A4 HandlePacketFromAwayNode return");
+#endif
 }
 
 /** Checks ticcmd for "speed hacks"
@@ -5380,27 +5425,62 @@ static void GetPackets(void)
 {FILESTAMP
 	XBOXSTATIC SINT8 node; // The packet sender
 FILESTAMP
+#ifdef _PS3
+	static int ps3gpcalls = 0;
+	boolean ps3gptrace;
+	ps3gpcalls++;
+	ps3gptrace = (ps3gpcalls <= 300);
+	if (ps3gptrace) ps3cs("G1 GetPackets entry");
+#endif
 
 	player_joining = false;
 
+#ifdef _PS3
+	if (ps3gptrace) ps3cs("G2 before while(HGetPacket())");
+#endif
 	while (HGetPacket())
 	{
+#ifdef _PS3
+		if (ps3gptrace) ps3cs("G3 got a packet (unexpected in solo)");
+#endif
 		node = (SINT8)doomcom->remotenode;
+#ifdef _PS3
+		if (ps3gptrace)
+		{
+			char ps3gpbuf[96];
+			snprintf(ps3gpbuf, sizeof ps3gpbuf, "G3b node=%d packettype=%d server=%d client=%d nodeingame[node]=%d",
+				(int)node, (int)netbuffer->packettype, (int)server, (int)client,
+				(node >= 0 && node < MAXNETNODES) ? (int)nodeingame[node] : -1);
+			ps3cs(ps3gpbuf);
+		}
+#endif
 
 		if (netbuffer->packettype == PT_CLIENTJOIN && server && !levelloading)
 		{
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3c before HandleConnect");
+#endif
 			HandleConnect(node);
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3d after HandleConnect");
+#endif
 			continue;
 		}
 		if (node == servernode && client && cl_mode != CL_SEARCHING)
 		{
 			if (netbuffer->packettype == PT_SERVERSHUTDOWN)
 			{
+#ifdef _PS3
+				if (ps3gptrace) ps3cs("G3e before HandleShutdown");
+#endif
 				HandleShutdown(node);
 				continue;
 			}
 			if (netbuffer->packettype == PT_NODETIMEOUT)
 			{
+#ifdef _PS3
+				if (ps3gptrace) ps3cs("G3f before HandleTimeout");
+#endif
 				HandleTimeout(node);
 				continue;
 			}
@@ -5419,11 +5499,30 @@ FILESTAMP
 
 		// Packet received from someone already playing
 		if (nodeingame[node])
+		{
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3g before HandlePacketFromPlayer");
+#endif
 			HandlePacketFromPlayer(node);
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3h after HandlePacketFromPlayer");
+#endif
+		}
 		// Packet received from someone not playing
 		else
+		{
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3i before HandlePacketFromAwayNode");
+#endif
 			HandlePacketFromAwayNode(node);
+#ifdef _PS3
+			if (ps3gptrace) ps3cs("G3j after HandlePacketFromAwayNode");
+#endif
+		}
 	}
+#ifdef _PS3
+	if (ps3gptrace) ps3cs("G4 GetPackets return");
+#endif
 }
 
 //
@@ -5970,9 +6069,29 @@ boolean TryRunTics(tic_t realtics)
 
 	if (player_joining)
 	{
+#ifdef _PS3
+		{
+			static int ps3pjcalls = 0;
+			ps3pjcalls++;
+			if (ps3pjcalls <= 100)
+			{
+				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugG.txt", "a");
+				if (pf) { fprintf(pf, "[pj#%d] player_joining=true neededtic=%u gametic=%u maketic=%u\n", ps3pjcalls, neededtic, gametic, maketic); fflush(pf); fclose(pf); }
+			}
+		}
+#endif
 		hu_stopped = true;
 		return false;
 	}
+
+#ifdef _PS3
+	{
+		static int ps3trrtcalls = 0;
+		ps3trrtcalls++;
+		if (ps3trrtcalls <= 5000)
+			ps3cs(va("TRT#%d before ticking-check neededtic=%u gametic=%u player_joining=%d server=%d client=%d", ps3trrtcalls, neededtic, gametic, player_joining, server, client));
+	}
+#endif
 
 	ticking = neededtic > gametic;
 
@@ -5984,9 +6103,21 @@ boolean TryRunTics(tic_t realtics)
 			DEBFILE(va("============ Running tic %d (local %d)\n", gametic, localgametic));
 
 			G_Ticker((gametic % NEWTICRATERATIO) == 0);
+#ifdef _PS3
+			ps3cs(va("WL1 after G_Ticker gametic=%u neededtic=%u", gametic, neededtic));
+#endif
 			ExtraDataTicker();
+#ifdef _PS3
+			ps3cs("WL2 after ExtraDataTicker");
+#endif
 			gametic++;
+#ifdef _PS3
+			ps3cs(va("WL3 after gametic++ gametic=%u", gametic));
+#endif
 			consistancy[gametic%TICQUEUE] = Consistancy();
+#ifdef _PS3
+			ps3cs("WL4 after Consistancy");
+#endif
 
 			// Leave a certain amount of tics present in the net buffer as long as we've ran at least one tic this frame.
 			if (client && gamestate == GS_LEVEL && leveltime > 3 && neededtic <= gametic + cv_netticbuffer.value)
@@ -6213,12 +6344,25 @@ void NetUpdate(void)
 	tic_t nowtime;
 	INT32 i;
 	INT32 realtics;
+#ifdef _PS3
+	static int ps3nucalls = 0;
+	boolean ps3nutrace;
+	ps3nucalls++;
+	ps3nutrace = (ps3nucalls <= 3000);
+	if (ps3nutrace) ps3cs("U0 NetUpdate entry");
+#endif
 
 	nowtime = I_GetTime();
 	realtics = nowtime - gametime;
+	if (ps3nutrace) ps3cs(va("U0c nowtime=%u gametime=%u realtics=%d", nowtime, gametime, realtics));
 
 	if (realtics <= 0) // nothing new to update
+	{
+#ifdef _PS3
+		if (ps3nutrace) ps3cs("U0b NetUpdate early return (realtics<=0)");
+#endif
 		return;
+	}
 
 #ifdef DEDICATEDIDLETIME
 	if (server && dedicated && gamestate == GS_LEVEL)
@@ -6278,28 +6422,49 @@ void NetUpdate(void)
 
 	gametime = nowtime;
 
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U1 before UpdatePingTable");
+#endif
 	UpdatePingTable();
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U2 after UpdatePingTable, before Local_Maketic");
+#endif
 
 	if (client)
 		maketic = neededtic;
 
 	Local_Maketic(realtics); // make local tic, and call menu?
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U3 after Local_Maketic");
+#endif
 
 	if (server)
 		CL_SendClientCmd(); // send it
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U4 before GetPackets");
+#endif
 FILESTAMP
 	GetPackets(); // get packet from client or from server
 FILESTAMP
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U5 after GetPackets");
+#endif
 	// client send the command after a receive of the server
 	// the server send before because in single player is beter
 
 #ifdef MASTERSERVER
 	MasterClient_Ticker(); // Acking the Master Server
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U6 after MasterClient_Ticker");
+#endif
 #endif
 
 	if (netgame && serverrunning)
 	{
 		RenewHolePunch();
+#ifdef _PS3
+		if (ps3nutrace) ps3cs("U7 after RenewHolePunch");
+#endif
 	}
 
 	if (client)
@@ -6310,6 +6475,7 @@ FILESTAMP
 	}
 	else
 	{
+		if (ps3nutrace) ps3cs(va("SV0 else-branch entry realtics=%d demo.playback=%d", realtics, demo.playback));
 		if (!demo.playback && realtics > 0)
 		{
 			INT32 counts;
@@ -6331,6 +6497,8 @@ FILESTAMP
 					counts = -666;
 				}
 
+			if (ps3nutrace) ps3cs(va("SV1 counts=%d firstticstosend=%u maketic=%u", counts, firstticstosend, maketic));
+
 			// Do not make tics while resynching
 			if (counts != -666)
 			{
@@ -6347,13 +6515,26 @@ FILESTAMP
 				SV_SendTics();
 
 				neededtic = maketic; // The server is a client too
+				if (ps3nutrace) ps3cs(va("SV2 after neededtic=maketic neededtic=%u maketic=%u", neededtic, maketic));
 			}
 			else
+			{
 				hu_resynching = true;
+				if (ps3nutrace) ps3cs("SV3 resynching, skipped tic creation");
+			}
 		}
 	}
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U8 before Net_AckTicker");
+#endif
 	Net_AckTicker();
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U9 before HandleNodeTimeouts");
+#endif
 	HandleNodeTimeouts();
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U10 after HandleNodeTimeouts");
+#endif
 	if (nowtime > resptime)
 	{
 		resptime = nowtime;
@@ -6364,9 +6545,18 @@ FILESTAMP
 #ifdef HAVE_THREADS
 		I_unlock_mutex(m_menu_mutex);
 #endif
+#ifdef _PS3
+		if (ps3nutrace) ps3cs("U11 after M_Ticker, before CON_Ticker");
+#endif
 		CON_Ticker();
+#ifdef _PS3
+		if (ps3nutrace) ps3cs("U12 after CON_Ticker");
+#endif
 	}
 	SV_FileSendTicker();
+#ifdef _PS3
+	if (ps3nutrace) ps3cs("U13 NetUpdate return");
+#endif
 }
 
 /** Returns the number of players playing.

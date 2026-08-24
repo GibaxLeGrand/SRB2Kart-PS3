@@ -722,27 +722,46 @@ void R_ExecuteSetViewSize(void)
 // R_Init
 //
 
+#ifdef _PS3
+#include <stdio.h>
+static void ps3r(const char *msg)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug3.txt", "a");
+	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
+}
+#else
+#define ps3r(msg)
+#endif
+
 void R_Init(void)
 {
 	// screensize independent
 	//I_OutputMsg("\nR_InitData");
+	ps3r("R1 before R_InitData");
 	R_InitData();
+	ps3r("R2 after R_InitData");
 
 	//I_OutputMsg("\nR_InitViewBorder");
 	R_InitViewBorder();
+	ps3r("R3 after R_InitViewBorder");
 	R_SetViewSize(); // setsizeneeded is set true
+	ps3r("R4 after R_SetViewSize");
 
 	//I_OutputMsg("\nR_InitPlanes");
 	R_InitPlanes();
+	ps3r("R5 after R_InitPlanes");
 
 	// this is now done by SCR_Recalc() at the first mode set
 	//I_OutputMsg("\nR_InitLightTables");
 	R_InitLightTables();
+	ps3r("R6 after R_InitLightTables");
 
 	//I_OutputMsg("\nR_InitTranslationTables\n");
 	R_InitTranslationTables();
+	ps3r("R7 after R_InitTranslationTables");
 
 	R_InitDrawNodes();
+	ps3r("R8 after R_InitDrawNodes");
 
 	framecount = 0;
 }

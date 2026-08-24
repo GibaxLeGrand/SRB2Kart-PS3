@@ -146,6 +146,10 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 #define DEFAULTSEARCHPATH1 "/usr/local/games"
 #define DEFAULTSEARCHPATH2 "/usr/games"
 #define DEFAULTSEARCHPATH3 "/usr/local"
+#elif defined (_PS3)
+// No real POSIX "current directory" concept -- RPCS3 (and a real PS3's
+// game loader) mount the app's own content directory at /app_home.
+#define DEFAULTWADLOCATION1 "/app_home"
 #endif
 
 /**	\brief WAD file to look for
@@ -3636,7 +3640,7 @@ static const char *locateWad(void)
 	// examine current dir
 	strcpy(returnWadPath, ".");
 	if (isWadPathOk(returnWadPath))
-		return NULL;
+		return returnWadPath;
 #endif
 
 

@@ -2399,6 +2399,19 @@ void G_ResetViews(void)
 // G_Ticker
 // Make ticcmd_ts for the players.
 //
+#ifdef _PS3
+static void ps3gt2(const char *msg)
+{
+	static int ps3gt2seq = 0;
+	FILE *f;
+	ps3gt2seq++;
+	f = fopen("/dev_hdd0/game/SRB2KART/psdebugI.txt", "a");
+	if (f) { fprintf(f, "[#%d] %s\n", ps3gt2seq, msg); fflush(f); fclose(f); }
+}
+#else
+#define ps3gt2(msg)
+#endif
+
 void G_Ticker(boolean run)
 {
 	UINT32 i;
@@ -2410,6 +2423,8 @@ void G_Ticker(boolean run)
 	// when we REPLAY, don't skip, let the camera spin, do its thing etc~
 
 	// also the -1 is to ensure that the thinker runs in the loop below.
+
+	ps3gt2(va("G0 entry run=%d gametic=%u gamestate=%d", (int)run, gametic, gamestate));
 
 	P_MapStart();
 	// do player reborns if needed
@@ -2434,6 +2449,7 @@ void G_Ticker(boolean run)
 				G_DoReborn(i);
 	}
 	P_MapEnd();
+	ps3gt2("G1 after P_MapStart/P_MapEnd");
 
 	// do things to change the game state
 	while (gameaction != ga_nothing)
@@ -2447,6 +2463,7 @@ void G_Ticker(boolean run)
 			case ga_nothing: break;
 			default: I_Error("gameaction = %d\n", gameaction);
 		}
+	ps3gt2(va("G2 after gameaction loop gameaction=%d", gameaction));
 
 	buf = gametic % TICQUEUE;
 
@@ -2477,6 +2494,7 @@ void G_Ticker(boolean run)
 			cmd->latency = modeattacking ? 0 : min(((leveltime & 0xFF) - cmd->latency) & 0xFF, MAXPREDICTTICS-1); //@TODO add a cvar to allow setting this max
 		}
 	}
+	ps3gt2("G3 after ticcmd copy loop, before switch(gamestate)");
 
 	// do main actions
 	switch (gamestate)
@@ -2510,6 +2528,17 @@ void G_Ticker(boolean run)
 			break;
 
 		case GS_INTRO:
+#ifdef _PS3
+			{
+				static int ps3gtcalls = 0;
+				ps3gtcalls++;
+				if (ps3gtcalls <= 60)
+				{
+					FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugE.txt", "a");
+					if (f) { fprintf(f, "[gt#%d] run=%d gametic=%u\n", ps3gtcalls, (int)run, gametic); fflush(f); fclose(f); }
+				}
+			}
+#endif
 			if (run)
 				F_IntroTicker();
 			break;
@@ -2554,6 +2583,7 @@ void G_Ticker(boolean run)
 		case GS_NULL:
 			break; // do nothing
 	}
+	ps3gt2("G4 after switch(gamestate)");
 
 	if (run)
 	{
@@ -2590,6 +2620,7 @@ void G_Ticker(boolean run)
 			memset(player_name_changes, 0, sizeof player_name_changes);
 		}
 	}
+	ps3gt2("G5 G_Ticker return");
 }
 
 //

@@ -86,6 +86,10 @@
 #include "../discord.h"
 #endif
 
+#ifdef _PS3
+#include "i_video_ps3_gcm.h"
+#endif
+
 // maximum number of windowed modes (see windowedModes[][])
 #define MAXWINMODES (18)
 
@@ -1411,15 +1415,75 @@ static inline boolean I_SkipFrame(void)
 //
 static SDL_Rect src_rect = { 0, 0, 0, 0 };
 
+#ifdef _PS3
+static int ps3fucalls = 0;
+static boolean ps3futrace = false;
+static void ps3fu(const char *msg)
+{
+	FILE *f;
+	if (!ps3futrace)
+		return;
+	f = fopen("/dev_hdd0/game/SRB2KART/psdebugB.txt", "a");
+	if (f) { fprintf(f, "[fu#%d] %s\n", ps3fucalls, msg); fflush(f); fclose(f); }
+}
+static void ps3rsxnudge(void)
+{
+	// workaround for a timing-dependent freeze around frame 200 inside
+	// I_FinishUpdate(): interleaving real fopen+fputs+fflush+fclose calls
+	// between the SDL/RSX sub-calls below avoids it (confirmed by isolation
+	// testing - neither pure delay, nor a single fflush, nor a grouped burst
+	// of fflushes without interleaving reproduce the fix; only fflush calls
+	// positioned precisely between the SDL_Blit/Lock/UpdateTexture/Unlock/
+	// RenderClear/Copy/Present calls do). Likely papers over a missing RSX
+	// fence wait in SDL2_PSL1GHT rather than fixing the real cause.
+	//
+	// Disabled: the real fix is now in SDL2_PSL1GHT itself (waitFlip() in
+	// SDL_PSL1GHTrender.c had an unbounded busy-wait on the RSX flip status,
+	// which is the actual freeze - this nudge just perturbed timing enough
+	// to sometimes avoid hitting it). Testing the real fix in isolation.
+	if (1)
+		return;
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugC.txt", "a");
+	if (f)
+	{
+		fputs("x\n", f);
+		fflush(f);
+		fclose(f);
+	}
+}
+#else
+#define ps3fu(msg)
+#define ps3rsxnudge()
+#endif
+
 void I_FinishUpdate(void)
 {
+#ifdef _PS3
+	ps3fucalls++;
+	ps3futrace = (ps3fucalls >= 195 && ps3fucalls <= 3000); // widened further - hang now happens near disp#498, fu# offset ahead of disp# is unknown/variable
+	ps3fu("IFU0 entry");
+	ps3rsxnudge();
+#endif
 	if (rendermode == render_none)
 		return; //Alam: No software or OpenGl surface
 
 	SCR_CalculateFPS();
+#ifdef _PS3
+	ps3fu("IFU1 after SCR_CalculateFPS");
+	ps3rsxnudge();
+#endif
 
 	if (I_SkipFrame())
+	{
+#ifdef _PS3
+		ps3fu("IFU1b I_SkipFrame true, early return");
+#endif
 		return;
+	}
+#ifdef _PS3
+	ps3fu("IFU2 after I_SkipFrame (false)");
+	ps3rsxnudge();
+#endif
 
 	if (cv_ticrate.value)
 		SCR_DisplayTicRate();
@@ -1432,6 +1496,22 @@ void I_FinishUpdate(void)
 		ST_AskToJoinEnvelope();
 #endif
 
+#ifdef _PS3
+	ps3fu("IFU3 before render_soft block");
+	ps3rsxnudge();
+#endif
+#ifdef _PS3
+	if (rendermode == render_soft && screens[0])
+	{
+		// Raw cellGcm path -- no SDL blit/texture/renderer at all.
+		// See i_video_ps3_gcm.h for why.
+		ps3fu("IFU4 before PS3GCM_FinishUpdate");
+		PS3GCM_FinishUpdate(screens[0]);
+		ps3fu("IFU11 before PS3GCM_Flip");
+		PS3GCM_Flip();
+		ps3fu("IFU12 after PS3GCM_Flip");
+	}
+#else
 	if (rendermode == render_soft && screens[0])
 	{
 		if (!bufSurface) //Double-Check
@@ -1452,6 +1532,7 @@ void I_FinishUpdate(void)
 		SDL_RenderCopy(renderer, texture, &src_rect, NULL);
 		SDL_RenderPresent(renderer);
 	}
+#endif
 
 #ifdef HWRENDER
 	else if (rendermode == render_opengl)
@@ -1461,6 +1542,10 @@ void I_FinishUpdate(void)
 #endif
 
 	exposevideo = SDL_FALSE;
+#ifdef _PS3
+	ps3fu("IFU13 I_FinishUpdate return");
+	ps3rsxnudge();
+#endif
 }
 
 //
@@ -1492,6 +1577,9 @@ void I_ReadScreen(UINT8 *scr)
 //
 void I_SetPalette(RGBA_t *palette)
 {
+#ifdef _PS3
+	PS3GCM_SetPalette(palette);
+#else
 	size_t i;
 	for (i=0; i<256; i++)
 	{
@@ -1502,6 +1590,7 @@ void I_SetPalette(RGBA_t *palette)
 	//if (vidSurface) SDL_SetPaletteColors(vidSurface->format->palette, localPalette, 0, 256);
 	// Fury -- SDL2 vidSurface is a 32-bit surface buffer copied to the texture. It's not palletized, like bufSurface.
 	if (bufSurface) SDL_SetPaletteColors(bufSurface->format->palette, localPalette, 0, 256);
+#endif
 }
 
 // return number of fullscreen + X11 modes
@@ -1676,6 +1765,26 @@ static UINT32 VID_GetRefreshRate(void)
 
 INT32 VID_SetMode(INT32 modeNum)
 {
+#ifdef _PS3
+	// No SDL window/renderer on PS3 -- see i_video_ps3_gcm.h. Resolution is
+	// forced to BASEVIDWIDTHxBASEVIDHEIGHT; the gcm backend's scale factors
+	// are computed for that size at compile time.
+	(void)modeNum;
+
+	vid.recalc = 1;
+	vid.bpp = 1;
+	vid.width = BASEVIDWIDTH;
+	vid.height = BASEVIDHEIGHT;
+	vid.modenum = 0;
+
+	Impl_VideoSetupBuffer();
+
+	src_rect.w = vid.width;
+	src_rect.h = vid.height;
+	refresh_rate = 60;
+
+	return SDL_TRUE;
+#else
 	SDLdoUngrabMouse();
 
 	vid.recalc = 1;
@@ -1724,6 +1833,7 @@ INT32 VID_SetMode(INT32 modeNum)
 	refresh_rate = VID_GetRefreshRate();
 
 	return SDL_TRUE;
+#endif
 }
 
 static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
@@ -1871,8 +1981,26 @@ OpenRendererFile (const char * mode)
 	return fopen(path, mode);
 }
 
+#ifdef _PS3
+#include <stdio.h>
+static void ps3dbg(const char *msg)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug.txt", "a");
+	if (f)
+	{
+		fputs(msg, f);
+		fputc('\n', f);
+		fflush(f);
+		fclose(f);
+	}
+}
+#else
+#define ps3dbg(msg)
+#endif
+
 void I_StartupGraphics(void)
 {
+	ps3dbg("I_StartupGraphics entry");
 	if (dedicated)
 	{
 		rendermode = render_none;
@@ -1892,6 +2020,13 @@ void I_StartupGraphics(void)
 
 	keyboard_started = true;
 
+	ps3dbg("1 before video init");
+#ifdef _PS3
+	// No SDL video on PS3 at all -- SDL_CreateWindow() is what triggered
+	// SDL2_PSL1GHT's own gcmInit()/display-buffer setup, and that whole
+	// stack is what we're bypassing (see i_video_ps3_gcm.h). cellGcm is
+	// initialized directly instead, once VID_SetMode() below has run.
+#else
 #if !defined(HAVE_TTF)
 	// Previously audio was init here for questionable reasons?
 	if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
@@ -1902,21 +2037,24 @@ void I_StartupGraphics(void)
 #endif
 	{
 		const char *vd = SDL_GetCurrentVideoDriver();
-		//CONS_Printf(M_GetText("Starting up with video driver: %s\n"), vd);
-		if (vd && (
-			strncasecmp(vd, "gcvideo", 8) == 0 ||
-			strncasecmp(vd, "fbcon", 6) == 0 ||
-			strncasecmp(vd, "wii", 4) == 0 ||
-			strncasecmp(vd, "psl1ght", 8) == 0
-		))
+		if (vd && strncasecmp(vd, "gcvideo", 8) == 0)
+			framebuffer = SDL_TRUE;
+		if (vd && strncasecmp(vd, "fbcon", 6) == 0)
+			framebuffer = SDL_TRUE;
+		if (vd && strncasecmp(vd, "wii", 4) == 0)
+			framebuffer = SDL_TRUE;
+		if (vd && strncasecmp(vd, "psl1ght", 8) == 0)
 			framebuffer = SDL_TRUE;
 	}
+#endif
+	ps3dbg("A");
 	if (M_CheckParm("-software"))
 		rendermode = render_soft;
 #ifdef HWRENDER
 	else if (M_CheckParm("-opengl"))
 		rendermode = render_opengl;
 #endif
+	ps3dbg("B");
 
 	if (rendermode == render_none)
 	{
@@ -1974,8 +2112,10 @@ void I_StartupGraphics(void)
 		}
 	}
 
+	ps3dbg("C");
 	usesdl2soft = M_CheckParm("-softblit");
 	borderlesswindow = M_CheckParm("-borderless");
+	ps3dbg("D");
 
 	//SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY>>1,SDL_DEFAULT_REPEAT_INTERVAL<<2);
 	VID_Command_ModeList_f();
@@ -2032,7 +2172,9 @@ void I_StartupGraphics(void)
 	// Create window
 	//Impl_CreateWindow(USE_FULLSCREEN);
 	//Impl_SetWindowName("SRB2Kart "VERSIONSTRING);
+	ps3dbg("E before VID_SetMode");
 	VID_SetMode(VID_GetModeForSize(BASEVIDWIDTH, BASEVIDHEIGHT));
+	ps3dbg("F after VID_SetMode");
 
 	vid.width = BASEVIDWIDTH; // Default size for startup
 	vid.height = BASEVIDHEIGHT; // BitsPerPixel is the SDL interface's
@@ -2041,6 +2183,14 @@ void I_StartupGraphics(void)
 	vid.bpp = 1; // This is the game engine's Bpp
 	vid.WndParent = NULL; //For the window?
 
+#ifdef _PS3
+	// No SDL window, so no window icon, second VID_SetMode(), mouse
+	// grab, or SDL_RaiseWindow() -- none of that concept exists here.
+	PS3GCM_VideoInit();
+	realwidth = (Uint16)vid.width;
+	realheight = (Uint16)vid.height;
+	VID_Command_Info_f();
+#else
 #ifdef HAVE_TTF
 	I_ShutdownTTF();
 #endif
@@ -2048,9 +2198,15 @@ void I_StartupGraphics(void)
 #ifdef HAVE_IMAGE
 	icoSurface = IMG_ReadXPMFromArray(SDL_icon_xpm);
 #endif
+	ps3dbg("G before Impl_SetWindowIcon");
 	Impl_SetWindowIcon();
+	ps3dbg("H before 2nd VID_SetMode");
 
+	// Redundant re-set of the same mode we already set up above -- harmless
+	// on mature SDL2 backends, but SDL2_PSL1GHT's display-buffer setup isn't
+	// re-entrant and hangs/crashes the second time through.
 	VID_SetMode(VID_GetModeForSize(BASEVIDWIDTH, BASEVIDHEIGHT));
+	ps3dbg("I after 2nd VID_SetMode");
 
 	if (M_CheckParm("-nomousegrab"))
 		mousegrabok = SDL_FALSE;
@@ -2067,10 +2223,14 @@ void I_StartupGraphics(void)
 	realwidth = (Uint16)vid.width;
 	realheight = (Uint16)vid.height;
 
+	ps3dbg("J before VID_Command_Info_f");
 	VID_Command_Info_f();
+	ps3dbg("K before SDLdoUngrabMouse");
 	SDLdoUngrabMouse();
+	ps3dbg("L before SDL_RaiseWindow");
 
 	SDL_RaiseWindow(window);
+	ps3dbg("M after SDL_RaiseWindow");
 
 	if (mousegrabok && !disable_mouse)
 	{
@@ -2079,8 +2239,10 @@ void I_StartupGraphics(void)
 		wrapmouseok = SDL_TRUE;
 		SDL_SetWindowGrab(window, SDL_TRUE);
 	}
+#endif // _PS3
 
 	graphics_started = true;
+	ps3dbg("N I_StartupGraphics done");
 }
 
 void I_ShutdownGraphics(void)
@@ -2119,7 +2281,11 @@ void I_ShutdownGraphics(void)
 		SDL_GL_DeleteContext(sdlglcontext);
 	}
 #endif
+#ifdef _PS3
+	PS3GCM_VideoShutdown();
+#else
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
+#endif
 	framebuffer = SDL_FALSE;
 }
 

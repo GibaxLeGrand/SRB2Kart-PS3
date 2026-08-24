@@ -25,6 +25,17 @@
 #include "v_video.h" // pLocalPalette
 #include "dehacked.h"
 
+#ifdef _PS3
+#include <stdio.h>
+static void ps3rd(const char *msg)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug4.txt", "a");
+	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
+}
+#else
+#define ps3rd(msg)
+#endif
+
 #if defined (_WIN32) || defined (_WIN32_WCE)
 #include <malloc.h> // alloca(sizeof)
 #endif
@@ -387,6 +398,7 @@ void R_LoadTextures(void)
 	texpatch_t *patch;
 	texture_t *texture;
 
+	ps3rd("T0 R_LoadTextures entry");
 	// Free previous memory before numtextures change.
 	if (numtextures)
 	{
@@ -445,6 +457,11 @@ void R_LoadTextures(void)
 		}
 	}
 
+	{
+		char ps3buf[64];
+		snprintf(ps3buf, sizeof ps3buf, "T1 numtextures=%d", (int)numtextures);
+		ps3rd(ps3buf);
+	}
 	// If no textures found by this point, bomb out
 	if (!numtextures)
 		I_Error("No textures detected in any WADs!\n");
@@ -452,6 +469,7 @@ void R_LoadTextures(void)
 	// Allocate memory and initialize to 0 for all the textures we are initialising.
 	// There are actually 5 buffers allocated in one for convenience.
 	textures = Z_Calloc((numtextures * sizeof(void *)) * 5, PU_STATIC, NULL);
+	ps3rd("T2 after textures Z_Calloc");
 
 	// Allocate texture column offset table.
 	texturecolumnofs = (void *)((UINT8 *)textures + (numtextures * sizeof(void *)));
@@ -466,9 +484,15 @@ void R_LoadTextures(void)
 
 	for (i = 0; i < numtextures; i++)
 		texturetranslation[i] = i;
+	ps3rd("T3 before main w-loop");
 
 	for (i = 0, w = 0; w < numwadfiles; w++)
 	{
+		{
+			char ps3buf[64];
+			snprintf(ps3buf, sizeof ps3buf, "T4 w-loop w=%d i=%d", (int)w, (int)i);
+			ps3rd(ps3buf);
+		}
 		// Get the lump numbers for the markers in the WAD, if they exist.
 		if (wadfiles[w]->type == RET_PK3)
 		{
@@ -494,22 +518,48 @@ void R_LoadTextures(void)
 			continue;
 
 		// Work through each lump between the markers in the WAD.
+		{
+			char ps3buf[64];
+			snprintf(ps3buf, sizeof ps3buf, "T5 w=%d texstart=%d texend=%d", (int)w, (int)texstart, (int)texend);
+			ps3rd(ps3buf);
+		}
 		for (j = 0; j < (texend - texstart); j++)
 		{
+			if (j % 25 == 0)
+			{
+				char ps3buf[64];
+				snprintf(ps3buf, sizeof ps3buf, "T6 j=%d i=%d", (int)j, (int)i);
+				ps3rd(ps3buf);
+			}
+			if (w == 2 && j >= 860 && j <= 920)
+			{
+				char ps3buf[96];
+				const char *lname = W_CheckNameForNumPwad((UINT16)w, texstart + j);
+				snprintf(ps3buf, sizeof ps3buf, "T6b j=%d name=%s", (int)j, lname ? lname : "(null)");
+				ps3rd(ps3buf);
+			}
 			if (W_FileHasFolders(wadfiles[w]))
 			{
 				if (W_IsLumpFolder(w, texstart + j)) // Check if lump is a folder
 					continue; // If it is then SKIP IT
 			}
+			if (w == 2 && j >= 860 && j <= 920)
+				ps3rd("T6c before W_CacheLumpNumPwad");
 			patchlump = W_CacheLumpNumPwad((UINT16)w, texstart + j, PU_CACHE);
+			if (w == 2 && j >= 860 && j <= 920)
+				ps3rd("T6d after W_CacheLumpNumPwad");
 
 			//CONS_Printf("\n\"%s\" is a single patch, dimensions %d x %d",W_CheckNameForNumPwad((UINT16)w,texstart+j),patchlump->width, patchlump->height);
 			texture = textures[i] = Z_Calloc(sizeof(texture_t) + sizeof(texpatch_t), PU_STATIC, NULL);
 
 			// Set texture properties.
 			M_Memcpy(texture->name, W_CheckNameForNumPwad((UINT16)w, texstart + j), sizeof(texture->name));
+			if (w == 2 && j >= 860 && j <= 920)
+				ps3rd("T6e after M_Memcpy name");
 			texture->width = SHORT(patchlump->width);
 			texture->height = SHORT(patchlump->height);
+			if (w == 2 && j >= 860 && j <= 920)
+				ps3rd("T6f after width/height read");
 			texture->patchcount = 1;
 			texture->holes = false;
 
@@ -531,6 +581,7 @@ void R_LoadTextures(void)
 			i++;
 		}
 	}
+	ps3rd("T7 R_LoadTextures done");
 }
 
 static texpatch_t *R_ParsePatch(boolean actuallyLoadPatch)
@@ -1509,17 +1560,23 @@ void R_InitData(void)
 	}
 
 	CONS_Printf("R_LoadTextures()...\n");
+	ps3rd("D1 before R_LoadTextures");
 	R_LoadTextures();
+	ps3rd("D2 after R_LoadTextures");
 
 	CONS_Printf("P_InitPicAnims()...\n");
 	P_InitPicAnims();
+	ps3rd("D3 after P_InitPicAnims");
 
 	CONS_Printf("R_InitSprites()...\n");
 	R_InitSpriteLumps();
+	ps3rd("D4 after R_InitSpriteLumps");
 	R_InitSprites();
+	ps3rd("D5 after R_InitSprites");
 
 	CONS_Printf("R_InitColormaps()...\n");
 	R_InitColormaps();
+	ps3rd("D6 after R_InitColormaps");
 }
 
 void R_ClearTextureNumCache(boolean btell)

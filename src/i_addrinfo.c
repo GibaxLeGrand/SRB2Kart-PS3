@@ -25,9 +25,10 @@
 #ifndef _NDS
 #include <arpa/inet.h>
 #endif
-#ifdef _PS3
-#include <net/netdb.h>
-#elif ! defined (_arch_dreamcast)
+// PS3DK's modern netdb.h has gethostbyname()/struct hostent (unlike old
+// PSL1GHT v2), so no need for the net/netdb.h + net/socket.h legacy pair
+// here -- those conflict with the sys/socket.h already included above.
+#if ! defined (_arch_dreamcast)
 #include <netdb.h>
 #endif
 #endif

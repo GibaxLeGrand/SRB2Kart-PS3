@@ -269,12 +269,31 @@ void D_ProcessEvents(void)
 // added comment : there is a wipe eatch change of the gamestate
 gamestate_t wipegamestate = GS_LEVEL;
 
+#ifdef _PS3
+static int ps3dispcalls = 0;
+static boolean ps3dtrace = false;
+static void ps3d(const char *msg)
+{
+	FILE *f;
+	if (!ps3dtrace)
+		return;
+	f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
+	if (f) { fprintf(f, "[disp#%d] %s\n", ps3dispcalls, msg); fflush(f); fclose(f); }
+}
+#endif
+
 static void D_Display(void)
 {
 	boolean forcerefresh = false;
 	static boolean wipe = false;
 	INT32 wipedefindex = 0;
 	UINT8 i;
+
+#ifdef _PS3
+	ps3dispcalls++;
+	ps3dtrace = (ps3dispcalls <= 3000);
+	ps3d("D0 D_Display entry");
+#endif
 
 	if (!dedicated)
 	{
@@ -346,6 +365,10 @@ static void D_Display(void)
 	if (dedicated) //bail out after wipe logic
 		return;
 
+#ifdef _PS3
+	ps3d("D1 after wipe block, before switch(gamestate)");
+#endif
+
 	// do buffered drawing
 	switch (gamestate)
 	{
@@ -372,7 +395,13 @@ static void D_Display(void)
 			break;
 
 		case GS_INTRO:
+#ifdef _PS3
+			ps3d("D2a before F_IntroDrawer");
+#endif
 			F_IntroDrawer();
+#ifdef _PS3
+			ps3d("D2b after F_IntroDrawer");
+#endif
 			if (wipegamestate == (gamestate_t)-1)
 			{
 				wipe = true;
@@ -407,7 +436,13 @@ static void D_Display(void)
 			break;
 
 		case GS_TITLESCREEN:
+#ifdef _PS3
+			ps3d("D2c before F_TitleScreenDrawer");
+#endif
 			F_TitleScreenDrawer();
+#ifdef _PS3
+			ps3d("D2d after F_TitleScreenDrawer");
+#endif
 			if (wipe)
 				wipedefindex = wipe_titlescreen_toblack;
 			break;
@@ -425,6 +460,9 @@ static void D_Display(void)
 		case GS_NULL:
 			break;
 	}
+#ifdef _PS3
+	ps3d("D3 after switch(gamestate)");
+#endif
 
 	if (gamestate == GS_LEVEL)
 	{
@@ -549,9 +587,15 @@ static void D_Display(void)
 	// vid size change is now finished if it was on...
 	vid.recalc = 0;
 
+#ifdef _PS3
+	ps3d("D4 before CON_Drawer");
+#endif
 	// FIXME: draw either console or menu, not the two
 	if (gamestate != GS_TIMEATTACK)
 		CON_Drawer();
+#ifdef _PS3
+	ps3d("D5 after CON_Drawer, before M_Drawer");
+#endif
 
 #ifdef HAVE_THREADS
 	I_lock_mutex(&m_menu_mutex);
@@ -561,6 +605,9 @@ static void D_Display(void)
 	I_unlock_mutex(m_menu_mutex);
 #endif
 	// focus lost moved to M_Drawer
+#ifdef _PS3
+	ps3d("D6 after M_Drawer");
+#endif
 
 	//
 	// wipe update
@@ -573,12 +620,27 @@ static void D_Display(void)
 
 		if (rendermode != render_none)
 		{
+#ifdef _PS3
+			ps3d("D7 before F_WipeEndScreen");
+#endif
 			F_WipeEndScreen();
+#ifdef _PS3
+			ps3d("D7b after F_WipeEndScreen, before F_RunWipe");
+#endif
 			F_RunWipe(wipedefs[wipedefindex], gamestate != GS_TIMEATTACK);
+#ifdef _PS3
+			ps3d("D8 after F_RunWipe");
+#endif
 		}
 	}
 
+#ifdef _PS3
+	ps3d("D9 before NetUpdate");
+#endif
 	NetUpdate(); // send out any new accumulation
+#ifdef _PS3
+	ps3d("D10 after NetUpdate");
+#endif
 
 	// It's safe to end the game now.
 	if (G_GetExitGameFlag())
@@ -612,8 +674,21 @@ static void D_Display(void)
 		if (cv_shittyscreen.value)
 			V_DrawVhsEffect(cv_shittyscreen.value == 2);
 
+#ifdef _PS3
+		ps3d("D11 before I_FinishUpdate");
+		// the isolation-test burst that used to live here has been superseded:
+		// the actual workaround (ps3rsxnudge, interleaved fflush calls between
+		// the SDL/RSX sub-calls) now lives permanently inside I_FinishUpdate()
+		// itself (sdl/i_video.c) since that's the only configuration that works
+#endif
 		I_FinishUpdate(); // page flip or blit buffer
+#ifdef _PS3
+		ps3d("D12 after I_FinishUpdate");
+#endif
 	}
+#ifdef _PS3
+	ps3d("D13 D_Display return");
+#endif
 }
 
 // =========================================================================
@@ -621,6 +696,21 @@ static void D_Display(void)
 // =========================================================================
 
 tic_t rendergametic;
+
+#ifdef _PS3
+static void ps3m(const char *msg)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug2.txt", "a");
+	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
+}
+static void ps3mloop(int iter, const char *step)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug9.txt", "a");
+	if (f) { fprintf(f, "F%d %s\n", iter, step); fflush(f); fclose(f); }
+}
+#else
+#define ps3m(msg)
+#endif
 
 void D_SRB2Loop(void)
 {
@@ -648,8 +738,11 @@ void D_SRB2Loop(void)
 	con_startup = false;
 
 	// make sure to do a d_display to init mode _before_ load a level
+	ps3m("L1 before SCR_SetMode");
 	SCR_SetMode(); // change video mode
+	ps3m("L2 after SCR_SetMode, before SCR_Recalc");
 	SCR_Recalc();
+	ps3m("L3 after SCR_Recalc");
 
 	// Check and print which version is executed.
 	// Use this as the border between setup and the main game loop being entered.
@@ -662,9 +755,24 @@ void D_SRB2Loop(void)
 	// hack to start on a nice clear console screen.
 	COM_ImmedExecute("cls;version");
 
+	ps3m("L4 before KARTKREW patch draw");
 	if (rendermode == render_soft)
-		V_DrawFixedPatch(0, 0, FRACUNIT/2, 0, (patch_t *)W_CacheLumpNum(W_GetNumForName("KARTKREW"), PU_CACHE), NULL);
+	{
+		ps3m("L5 before W_GetNumForName(KARTKREW)");
+		{
+			lumpnum_t kklump = W_GetNumForName("KARTKREW");
+			ps3m("L6 before W_CacheLumpNum(KARTKREW)");
+			{
+				patch_t *kkpatch = (patch_t *)W_CacheLumpNum(kklump, PU_CACHE);
+				ps3m("L7 before V_DrawFixedPatch");
+				V_DrawFixedPatch(0, 0, FRACUNIT/2, 0, kkpatch, NULL);
+				ps3m("L8 after V_DrawFixedPatch");
+			}
+		}
+	}
+	ps3m("L9 before I_FinishUpdate");
 	I_FinishUpdate(); // page flip or blit buffer
+	ps3m("L10 after I_FinishUpdate, before main loop");
 
 	for (;;)
 	{
@@ -672,6 +780,14 @@ void D_SRB2Loop(void)
 		precise_t capbudget;
 		precise_t enterprecise = I_GetPreciseTime();
 		precise_t finishprecise = enterprecise;
+#ifdef _PS3
+		static int ps3loopiter = 0;
+		boolean ps3trace;
+		ps3loopiter++;
+		ps3trace = (ps3loopiter <= 3000);
+		if (ps3loopiter == 1) ps3m("L11 first main loop iteration entered");
+		if (ps3trace) ps3mloop(ps3loopiter, "top of iteration");
+#endif
 
 		{
 			// Casting the return value of a function is bad practice (apparently)
@@ -691,6 +807,9 @@ void D_SRB2Loop(void)
 		entertic = I_GetTime();
 		realtics = entertic - oldentertics;
 		oldentertics = entertic;
+#ifdef _PS3
+		if (realtics != 0) ps3mloop(ps3loopiter, va("RT realtics=%lu entertic=%lu", (unsigned long)realtics, (unsigned long)entertic));
+#endif
 
 		if (demo.playback && gamestate == GS_LEVEL)
 		{
@@ -722,6 +841,9 @@ void D_SRB2Loop(void)
 
 			// process tics (but maybe not if realtic == 0)
 			TryRunTics(realtics);
+#ifdef _PS3
+			if (ps3trace) ps3mloop(ps3loopiter, "after TryRunTics");
+#endif
 
 			if (lastdraw || singletics || gametic > rendergametic)
 			{
@@ -763,7 +885,13 @@ void D_SRB2Loop(void)
 
 		if (interp || doDisplay)
 		{
+#ifdef _PS3
+			if (ps3trace) ps3mloop(ps3loopiter, "before D_Display");
+#endif
 			D_Display();
+#ifdef _PS3
+			if (ps3trace) ps3mloop(ps3loopiter, "after D_Display");
+#endif
 		}
 
 		// Only take screenshots after drawing.
@@ -774,9 +902,15 @@ void D_SRB2Loop(void)
 
 		// consoleplayer -> displayplayers (hear sounds from viewpoint)
 		S_UpdateSounds(); // move positional sounds
+#ifdef _PS3
+		if (ps3trace) ps3mloop(ps3loopiter, "after S_UpdateSounds");
+#endif
 
 		// check for media change, loop music..
 		I_UpdateCD();
+#ifdef _PS3
+		if (ps3trace) ps3mloop(ps3loopiter, "after I_UpdateCD");
+#endif
 
 #ifdef HW3SOUND
 		HW3S_EndFrameUpdate();
@@ -811,6 +945,9 @@ void D_SRB2Loop(void)
 		finishprecise = I_GetPreciseTime();
 		deltasecs = (double)((INT64)(finishprecise - enterprecise)) / I_GetPrecisePrecision();
 		deltatics = deltasecs * NEWTICRATE;
+#ifdef _PS3
+		if (ps3trace) ps3mloop(ps3loopiter, "end of iteration");
+#endif
 	}
 }
 
@@ -1051,7 +1188,6 @@ static inline void D_MakeTitleString(char *s)
 	strcpy(s, temp);
 }
 
-
 //
 // D_SRB2Main
 //
@@ -1248,9 +1384,11 @@ void D_SRB2Main(void)
 
 	CONS_Printf("Z_Init(): Init zone memory allocation daemon. \n");
 	Z_Init();
+	CONS_Printf("PS3DBG: Z_Init returned\n");
 
 	// adapt tables to SRB2's needs, including extra slots for dehacked file support
 	P_PatchInfoTables();
+	CONS_Printf("PS3DBG: P_PatchInfoTables returned\n");
 
 	//---------------------------------------------------- READY TIME
 	// we need to check for dedicated before initialization of some subsystems
@@ -1375,6 +1513,12 @@ void D_SRB2Main(void)
 
 	CONS_Printf("I_StartupGraphics()...\n");
 	I_StartupGraphics();
+#ifdef _PS3
+	{
+		FILE *ps3f = fopen("/dev_hdd0/game/SRB2KART/psdebug.txt", "a");
+		if (ps3f) { fputs("O after I_StartupGraphics call returns\n", ps3f); fflush(ps3f); fclose(ps3f); }
+	}
+#endif
 
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
@@ -1387,37 +1531,50 @@ void D_SRB2Main(void)
 	//--------------------------------------------------------- CONSOLE
 	// setup loading screen
 	SCR_Startup();
+	ps3m("P1 after SCR_Startup");
 
 	// we need the font of the console
 	CONS_Printf("HU_Init(): Setting up heads up display.\n");
 	HU_Init();
+	ps3m("P2 after HU_Init");
 
 	COM_Init();
+	ps3m("P3 after COM_Init");
 	// libogc has a CON_Init function, we must rename SRB2's CON_Init in WII/libogc
 #ifndef _WII
 	CON_Init();
+	ps3m("P4 after CON_Init");
 #else
 	CON_InitWii();
 #endif
 
 	D_RegisterServerCommands();
+	ps3m("P5 after D_RegisterServerCommands");
 	D_RegisterClientCommands(); // be sure that this is called before D_CheckNetGame
+	ps3m("P6 after D_RegisterClientCommands");
 	R_RegisterEngineStuff();
+	ps3m("P7 after R_RegisterEngineStuff");
 	S_RegisterSoundStuff();
+	ps3m("P8 after S_RegisterSoundStuff");
 
 	I_RegisterSysCommands();
+	ps3m("P9 after I_RegisterSysCommands");
 
 	//--------------------------------------------------------- CONFIG.CFG
 	M_FirstLoadConfig(); // WARNING : this do a "COM_BufExecute()"
+	ps3m("P10 after M_FirstLoadConfig");
 
 	G_LoadGameData();
+	ps3m("P11 after G_LoadGameData");
 
 #if (defined (__unix__) && !defined (MSDOS)) || defined (UNIXCOMMON) || defined (HAVE_SDL)
 	VID_PrepareModeList(); // Regenerate Modelist according to cv_fullscreen
+	ps3m("P12 after VID_PrepareModeList");
 #endif
 
 	// set user default mode or mode set at cmdline
 	SCR_CheckDefaultMode();
+	ps3m("P13 after SCR_CheckDefaultMode");
 
 	wipegamestate = gamestate;
 
@@ -1451,9 +1608,11 @@ void D_SRB2Main(void)
 
 	CONS_Printf("M_Init(): Init miscellaneous info.\n");
 	M_Init();
+	ps3m("P14 after M_Init");
 
 	CONS_Printf("R_Init(): Init SRB2 refresh daemon.\n");
 	R_Init();
+	ps3m("P15 after R_Init");
 
 	// setting up sound
 	if (dedicated)
@@ -1501,13 +1660,18 @@ void D_SRB2Main(void)
 	{
 		CONS_Printf("S_InitSfxChannels(): Setting up sound channels.\n");
 		I_StartupSound();
+		ps3m("P16 after I_StartupSound");
 		I_InitMusic();
+		ps3m("P17 after I_InitMusic");
 		S_InitSfxChannels(cv_soundvolume.value);
+		ps3m("P18 after S_InitSfxChannels");
 		S_InitMusicDefs();
+		ps3m("P19 after S_InitMusicDefs");
 	}
 
 	CONS_Printf("ST_Init(): Init status bar.\n");
 	ST_Init();
+	ps3m("P20 after ST_Init");
 
 	// Set up splitscreen players before joining!
 	if (!dedicated && (M_CheckParm("-splitscreen") && M_IsNextParm()))
@@ -1525,6 +1689,7 @@ void D_SRB2Main(void)
 	CONS_Printf("D_CheckNetGame(): Checking network game status.\n");
 	if (D_CheckNetGame())
 		autostart = true;
+	ps3m("P21 after D_CheckNetGame");
 
 	if (splitscreen && !M_CheckParm("-connect")) // Make sure multiplayer & autostart is set if you have splitscreen, even after D_CheckNetGame
 		multiplayer = autostart = true;
@@ -1675,8 +1840,10 @@ void D_SRB2Main(void)
 	}
 	else
 		F_StartIntro(); // Tails 03-03-2002
+	ps3m("P22 after intro/title screen setup");
 
 	CON_ToggleOff();
+	ps3m("P23 after CON_ToggleOff");
 
 	if (dedicated && server)
 	{
@@ -1693,6 +1860,7 @@ void D_SRB2Main(void)
 		DRPC_Init();
 	}
 #endif
+	ps3m("P24 end of D_SRB2Main");
 }
 
 const char *D_Home(void)
@@ -1701,6 +1869,12 @@ const char *D_Home(void)
 
 #ifdef ANDROID
 	return "/data/data/org.srb2/";
+#endif
+#ifdef _PS3
+	// /app_home (where srb2.srb etc. live) is the read-only game content
+	// dir; /dev_hdd0 is where RPCS3 (and a real PS3) mount writable
+	// persistent storage.
+	return "/dev_hdd0/game/SRB2KART/";
 #endif
 #ifdef _arch_dreamcast
 	char VMUHOME[] = "HOME=/vmu/a1";

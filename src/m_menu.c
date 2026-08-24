@@ -3482,7 +3482,9 @@ void M_Ticker(void)
 	I_unlock_mutex(ms_ServerList_mutex);
 #endif
 
+#ifndef NONET
 	CL_TimeoutServerList();
+#endif
 }
 
 //
@@ -9259,6 +9261,7 @@ static void M_DrawLevelSelectOnly(boolean leftfade, boolean rightfade)
 static void M_DrawServerMenu(void)
 {
 	M_DrawLevelSelectOnly(false, false);
+#ifndef NONET
 	if (currentMenu == &MP_ServerDef && cv_advertise.value) // Remind players where they're hosting.
 	{
 		int mservflags = V_ALLOWLOWERCASE;
@@ -9268,6 +9271,7 @@ static void M_DrawServerMenu(void)
 			mservflags = mservflags|warningflags;
 		V_DrawCenteredThinString(BASEVIDWIDTH/2, BASEVIDHEIGHT-12, mservflags, va("Master Server: %s", cv_masterserver.string));
 	}
+#endif
 	M_DrawGenericMenu();
 }
 
