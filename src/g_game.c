@@ -2405,7 +2405,7 @@ static void ps3gt2(const char *msg)
 {
 	static int ps3gt2seq = 0;
 	FILE *f;
-	if (!ps3_debugtrace) return;
+	if (!(ps3_debugtrace & 8)) return; // PS3TRACE_LOGIC, d_main.c
 	ps3gt2seq++;
 	f = fopen("/dev_hdd0/game/SRB2KART/psdebugI.txt", "a");
 	if (f) { fprintf(f, "[#%d] %s\n", ps3gt2seq, msg); fflush(f); fclose(f); }

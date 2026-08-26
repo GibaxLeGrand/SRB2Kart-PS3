@@ -3919,7 +3919,7 @@ static int ps3csseq = 0;
 extern int ps3_debugtrace; // d_main.c
 static void ps3cs(const char *msg) {
 	FILE *f;
-	if (!ps3_debugtrace) return;
+	if (!(ps3_debugtrace & 8)) return; // PS3TRACE_LOGIC, d_main.c
 	f = fopen("/dev_hdd0/game/SRB2KART/psdebug8.txt", "a");
 	ps3csseq++;
 	if (f) { fprintf(f, "[#%d] %s\n", ps3csseq, msg); fflush(f); fclose(f); }

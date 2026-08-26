@@ -1463,7 +1463,7 @@ void I_FinishUpdate(void)
 	ps3fucalls++;
 	// 2026-08-26: lower bound (was >= 195, from the flip-#555 hunt) dropped so
 	// the profiler's trace-ON window is uniformly traced from frame 1.
-	ps3futrace = (ps3_debugtrace && ps3fucalls <= 3000);
+	ps3futrace = ((ps3_debugtrace & 4) && ps3fucalls <= 3000); // PS3TRACE_FINISH, d_main.c
 	ps3fu("IFU0 entry");
 	ps3rsxnudge();
 #endif

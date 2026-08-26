@@ -276,6 +276,21 @@ static boolean ps3dtrace = false;
 static void ps3d(const char *msg)
 {
 	FILE *f;
+
+	// PS3TRACE_DISPLAY_SYNC (bit 4, see d_main.c's ps3_debugtrace block):
+	// issue a barrier here instead of writing a line. These 19 call sites are
+	// the only thing standing between a working title screen and an RPCS3
+	// segfault two intro tics in, and a 60Hz flip pacer imposing the same
+	// ~17ms frame does NOT substitute for them -- so it is not frame duration
+	// that matters, it is what happens between the draw calls. If a plain
+	// "sync" is enough, the fault is a missing serialisation and costs
+	// nanoseconds to fix rather than the 903us a trace write costs.
+	if (ps3_debugtrace & 16)
+	{
+		__asm__ __volatile__("sync" ::: "memory");
+		return;
+	}
+
 	if (!ps3dtrace)
 		return;
 	f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
@@ -292,7 +307,7 @@ static void D_Display(void)
 
 #ifdef _PS3
 	ps3dispcalls++;
-	ps3dtrace = (ps3_debugtrace && ps3dispcalls <= 3000);
+	ps3dtrace = ((ps3_debugtrace & 2) && ps3dispcalls <= 3000); // PS3TRACE_DISPLAY, defined below
 	ps3d("D0 D_Display entry");
 #endif
 
@@ -764,13 +779,34 @@ static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at pr
 // iterations and is far more expensive per frame than the title screen, so a
 // single "on then off" split would price that transition instead of the
 // writes.
-// Master switch for the per-frame debug file writes left over from the
-// flip-#555 investigation, read here and by i_video.c, d_clisrv.c, d_net.c and
-// g_game.c. Measured 2026-08-26: one fopen/fprintf/fflush/fclose cycle on the
-// emulated HDD costs 903us, and the ~16 of them per frame cost 9.7ms -- 48fps
-// with them on versus 91fps with them off, over 400 title-screen frames each.
-// Off by default; set to 1 to bring the whole trace set back.
-int ps3_debugtrace = 0;
+// Which families of per-frame debug file writes are enabled, as a bitmask.
+// Read here and by i_video.c, d_clisrv.c, d_net.c and g_game.c (those use the
+// bit values directly, since this is a debug-only switch not worth a header).
+//
+// Measured 2026-08-26: one fopen/fprintf/fflush/fclose cycle on the emulated
+// HDD costs 903us, and the ~16 per frame cost 9.7ms -- 48fps with them all on
+// versus 91fps with them all off, over 400 title-screen frames each. So the
+// shipping value is 0.
+//
+// It is a bitmask rather than a flag because these writes turn out to keep the
+// game alive: with all of them off RPCS3 segfaults two intro tics in, with all
+// of them on the game reaches the title screen. Same signature as the
+// ps3rsxnudge note in i_video.c -- interleaved real syscalls between the RSX
+// sub-calls mask the fault, while a plain delay does not (four negative
+// isolation results on delay alone, 23/08). Enabling one family at a time
+// narrows down where the missing serialisation actually is.
+#define PS3TRACE_LOOP     1	// ps3mloop, D_SRB2Loop, 8 sites/frame, no RSX nearby
+#define PS3TRACE_DISPLAY  2	// ps3d, D_Display, up to 19 sites/frame
+#define PS3TRACE_FINISH   4	// ps3fu, I_FinishUpdate, 8 sites/frame, closest to the gcm calls
+#define PS3TRACE_LOGIC    8	// ps3cs / ps3n / ps3gt2, game logic, furthest from the RSX
+#define PS3TRACE_DISPLAY_SYNC 16	// ps3d sites issue a "sync" barrier instead of writing
+#define PS3TRACE_STATE       32	// psdebugS.txt game-state log (cheap, see PS3_StateWatch)
+
+// Shipping value. DISPLAY_SYNC is a WORKAROUND, not a fix: without some
+// serialisation at the ps3d sites the game does not survive two intro tics,
+// and nobody has established why. STATE is the psdebugS.txt progress log.
+// The file-writing families (LOOP/DISPLAY/FINISH/LOGIC) stay off -- 903us each.
+int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE;
 
 static unsigned int ps3prof_total[PS3PROF_FRAMES];
 static unsigned int ps3prof_tics[PS3PROF_FRAMES];
@@ -926,6 +962,150 @@ static void PS3_ProfDump(void)
 	fclose(f);
 }
 
+
+// ---------------------------------------------------------------------------
+// 2026-08-26 -- game state log, psdebugS.txt.
+//
+// Written only when something actually changes, plus one heartbeat per second.
+// A debug write costs 903us on the emulated HDD (measured), so a per-frame log
+// would eat 5% of a 60Hz frame budget; at roughly one line per second the cost
+// is about 0.09%. Every line is flushed and the file closed, so the last line
+// written survives an RPCS3 host segfault -- which is the point, given the
+// crash currently under investigation takes the whole emulator down.
+//
+// Gives a readable trail (loading -> intro -> title screen -> demo -> level)
+// without needing screenshots, which do not work on a locked desktop anyway.
+// ---------------------------------------------------------------------------
+static const char *PS3_GameStateName(gamestate_t gs)
+{
+	switch (gs)
+	{
+		case GS_NULL:            return "GS_NULL";
+		case GS_LEVEL:           return "GS_LEVEL";
+		case GS_INTERMISSION:    return "GS_INTERMISSION";
+		case GS_VOTING:          return "GS_VOTING";
+		case GS_CONTINUING:      return "GS_CONTINUING";
+		case GS_TITLESCREEN:     return "GS_TITLESCREEN";
+		case GS_TIMEATTACK:      return "GS_TIMEATTACK";
+		case GS_CREDITS:         return "GS_CREDITS";
+		case GS_EVALUATION:      return "GS_EVALUATION";
+		case GS_GAMEEND:         return "GS_GAMEEND";
+		case GS_INTRO:           return "GS_INTRO";
+		case GS_CUTSCENE:        return "GS_CUTSCENE";
+		case GS_DEDICATEDSERVER: return "GS_DEDICATEDSERVER";
+		case GS_WAITINGPLAYERS:  return "GS_WAITINGPLAYERS";
+		default:                 return "GS_unknown";
+	}
+}
+
+static const char *PS3_GameActionName(gameaction_t ga)
+{
+	switch (ga)
+	{
+		case ga_nothing:   return "ga_nothing";
+		case ga_completed: return "ga_completed";
+		case ga_worlddone: return "ga_worlddone";
+		case ga_startcont: return "ga_startcont";
+		case ga_continued: return "ga_continued";
+		case ga_startvote: return "ga_startvote";
+		default:           return "ga_unknown";
+	}
+}
+
+static u64 ps3state_epoch_tb = 0;
+
+static void PS3_StateLine(u64 now_us, unsigned int frame, unsigned int frame_us, const char *what)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugS.txt", "a");
+	unsigned int fps_x100;
+
+	if (!f)
+		return;
+
+	fps_x100 = frame_us ? (unsigned int)(100000000UL / frame_us) : 0;
+
+	fprintf(f, "[%4llu.%03llus f%-6u tic%-7u %3u.%02u fps] %s\n",
+		(unsigned long long)(now_us / 1000000ULL),
+		(unsigned long long)((now_us / 1000ULL) % 1000ULL),
+		frame, (unsigned int)gametic,
+		fps_x100 / 100, fps_x100 % 100,
+		what);
+
+	fflush(f);
+	fclose(f);
+}
+
+static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
+{
+	static int started = 0;
+	static gamestate_t last_gs;
+	static gameaction_t last_ga;
+	static int last_demo;
+	static INT16 last_map;
+	static u64 next_beat_us;
+	char line[192];
+	u64 now_us;
+
+	if (!(ps3_debugtrace & PS3TRACE_STATE))
+		return;
+
+	if (ps3state_epoch_tb == 0)
+		ps3state_epoch_tb = ps3prof_tb();
+	now_us = PS3PROF_TB2US(ps3prof_tb() - ps3state_epoch_tb);
+
+	if (!started)
+	{
+		started = 1;
+		last_gs = gamestate;
+		last_ga = gameaction;
+		last_demo = demo.playback ? 1 : 0;
+		last_map = gamemap;
+		next_beat_us = now_us;
+		snprintf(line, sizeof line, "start   gamestate=%s gamemap=%d",
+			PS3_GameStateName(gamestate), (int)gamemap);
+		PS3_StateLine(now_us, frame, frame_us, line);
+		return;
+	}
+
+	if (gamestate != last_gs)
+	{
+		snprintf(line, sizeof line, "gamestate  %s -> %s",
+			PS3_GameStateName(last_gs), PS3_GameStateName(gamestate));
+		PS3_StateLine(now_us, frame, frame_us, line);
+		last_gs = gamestate;
+	}
+
+	if (gameaction != last_ga)
+	{
+		snprintf(line, sizeof line, "gameaction %s -> %s",
+			PS3_GameActionName(last_ga), PS3_GameActionName(gameaction));
+		PS3_StateLine(now_us, frame, frame_us, line);
+		last_ga = gameaction;
+	}
+
+	if ((demo.playback ? 1 : 0) != last_demo)
+	{
+		last_demo = demo.playback ? 1 : 0;
+		snprintf(line, sizeof line, "demo playback %s", last_demo ? "STARTED" : "stopped");
+		PS3_StateLine(now_us, frame, frame_us, line);
+	}
+
+	if (gamemap != last_map)
+	{
+		snprintf(line, sizeof line, "gamemap %d -> %d", (int)last_map, (int)gamemap);
+		PS3_StateLine(now_us, frame, frame_us, line);
+		last_map = gamemap;
+	}
+
+	if (now_us >= next_beat_us)
+	{
+		next_beat_us = now_us + 1000000ULL;	// one line per second
+		snprintf(line, sizeof line, "heartbeat  %s%s",
+			PS3_GameStateName(gamestate), demo.playback ? " (demo)" : "");
+		PS3_StateLine(now_us, frame, frame_us, line);
+	}
+}
+
 static void PS3_ProfRecord(int iter, unsigned int total, unsigned int tics,
 	unsigned int disp, unsigned int slp)
 {
@@ -1029,7 +1209,7 @@ void D_SRB2Loop(void)
 		// The alternating on/off A/B that used to live here has served its
 		// purpose (9.7ms per frame, 48fps vs 91fps) -- ps3_debugtrace now just
 		// stays at whatever it is initialised to, off by default.
-		ps3trace = (ps3_debugtrace && ps3loopiter <= 3000);
+		ps3trace = ((ps3_debugtrace & PS3TRACE_LOOP) && ps3loopiter <= 3000);
 		if (ps3loopiter == 1) { ps3m("L11 first main loop iteration entered"); PS3_ClockProbe(); }
 		if (ps3trace) ps3mloop(ps3loopiter, "top of iteration");
 #endif
@@ -1207,9 +1387,12 @@ void D_SRB2Loop(void)
 		deltatics = deltasecs * NEWTICRATE;
 #ifdef _PS3
 		if (ps3trace) ps3mloop(ps3loopiter, "end of iteration");
-		PS3_ProfRecord(ps3loopiter,
-			(unsigned int)PS3PROF_TB2US(ps3prof_tb() - ps3p_iter0),
-			ps3p_tics, ps3p_disp, ps3p_slp);
+		{
+			unsigned int ps3p_total = (unsigned int)PS3PROF_TB2US(ps3prof_tb() - ps3p_iter0);
+
+			PS3_ProfRecord(ps3loopiter, ps3p_total, ps3p_tics, ps3p_disp, ps3p_slp);
+			PS3_StateWatch((unsigned int)ps3loopiter, ps3p_total);
+		}
 #endif
 	}
 }
