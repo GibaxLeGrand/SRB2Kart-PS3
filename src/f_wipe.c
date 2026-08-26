@@ -40,13 +40,34 @@
 
 #ifdef _PS3
 #include <stdio.h>
+#include <sys/systime.h> // sysGetCurrentTime -- real microsecond timing (see i_video_ps3_gcm.c for why not I_GetPreciseTime)
 static void ps3fw(const char *msg)
 {
 	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
+static UINT64 ps3fw_now_us(void)
+{
+	u64 sec = 0, nsec = 0;
+	sysGetCurrentTime(&sec, &nsec);
+	return sec * 1000000ULL + nsec / 1000ULL;
+}
+// Real wall-clock elapsed time (us) between two ps3fw_now_us() samples, to
+// find out where F_RunWipe's real cost is (checkpoints alone only show
+// *that* something ran, not how long it actually took).
+static void ps3fw_us(const char *label, UINT64 t0, UINT64 t1)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugK.txt", "a");
+	if (f)
+	{
+		fprintf(f, "%s: %llu us\n", label, (unsigned long long)(t1 - t0));
+		fflush(f);
+		fclose(f);
+	}
+}
 #else
 #define ps3fw(msg)
+#define ps3fw_us(label, t0, t1)
 #endif
 
 typedef struct fademask_s {
@@ -378,8 +399,18 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 	// on for fade-to-black
 	for (;;)
 	{
+#ifdef _PS3
+		UINT64 ps3wt0, ps3wt1;
+		int ps3wframetrace = (wipeframe < 6); // first few frames only, avoid flooding
+#endif
 		// get fademask first so we can tell if it exists or not
+#ifdef _PS3
+		ps3wt0 = ps3fw_now_us();
+#endif
 		fmask = F_GetFadeMask(wipetype, wipeframe++);
+#ifdef _PS3
+		if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("F_GetFadeMask", ps3wt0, ps3wt1); }
+#endif
 		if (!fmask)
 			break;
 #ifdef _PS3
@@ -387,6 +418,9 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 #endif
 
 		// wait loop
+#ifdef _PS3
+		ps3wt0 = ps3fw_now_us();
+#endif
 		while (!((nowtime = I_GetTime()) - lastwipetic))
 		{
 			I_Sleep(cv_sleep.value);
@@ -394,9 +428,13 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 		}
 		lastwipetic = nowtime;
 #ifdef _PS3
+		if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("wait loop (tic pacing)", ps3wt0, ps3wt1); }
 		if (ps3wtrace) ps3fw("W6 after wait loop, before F_DoWipe");
 #endif
 
+#ifdef _PS3
+		ps3wt0 = ps3fw_now_us();
+#endif
 #ifdef HWRENDER
 		if (rendermode == render_opengl)
 			HWR_DoWipe(wipetype, wipeframe-1); // send in the wipe type and wipeframe because we need to cache the graphic
@@ -405,12 +443,17 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 		if (rendermode != render_none) //this allows F_RunWipe to be called in dedicated servers
 			F_DoWipe(fmask);
 #ifdef _PS3
+		if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("F_DoWipe", ps3wt0, ps3wt1); }
 		if (ps3wtrace) ps3fw("W7 after F_DoWipe, before I_OsPolling");
 #endif
 
+#ifdef _PS3
+		ps3wt0 = ps3fw_now_us();
+#endif
 		I_OsPolling();
 		I_UpdateNoBlit();
 #ifdef _PS3
+		if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("I_OsPolling+I_UpdateNoBlit", ps3wt0, ps3wt1); }
 		if (ps3wtrace) { ps3fw("W8 after I_UpdateNoBlit"); ps3wtrace = 0; }
 #endif
 
@@ -419,18 +462,33 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 #ifdef HAVE_THREADS
 			I_lock_mutex(&m_menu_mutex);
 #endif
+#ifdef _PS3
+			ps3wt0 = ps3fw_now_us();
+#endif
 			M_Drawer(); // menu is drawn even on top of wipes
+#ifdef _PS3
+			if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("M_Drawer", ps3wt0, ps3wt1); }
+#endif
 #ifdef HAVE_THREADS
 			I_unlock_mutex(m_menu_mutex);
 #endif
 		}
 
+#ifdef _PS3
+		ps3wt0 = ps3fw_now_us();
+#endif
 		I_FinishUpdate(); // page flip or blit buffer
+#ifdef _PS3
+		if (ps3wframetrace) { ps3wt1 = ps3fw_now_us(); ps3fw_us("I_FinishUpdate", ps3wt0, ps3wt1); }
+#endif
 
 		if (moviemode)
 			M_SaveFrame();
 
 		NetKeepAlive(); // Update the network so we don't cause timeouts
+#ifdef _PS3
+		if (ps3wframetrace) ps3fw("--- wipe frame end ---");
+#endif
 	}
 	WipeInAction = false;
 #endif

@@ -13,9 +13,49 @@
 #include <rsx/rsx.h>
 #include <rsx/gcm_sys.h>
 #include <sysutil/video.h>
+#include <sys/systime.h> // sysGetCurrentTime -- real microsecond timing, see note below
 
 #include "i_video_ps3_gcm.h"
 #include "../screen.h" // BASEVIDWIDTH, BASEVIDHEIGHT
+
+// Wall-clock timing for PS3GCM_FinishUpdate, to find out whether the CPU
+// palette-convert-and-scale loop is where per-frame time actually goes.
+// Uses sysGetCurrentTime() directly rather than I_GetPreciseTime()
+// (SDL_GetPerformanceCounter): SDL2_PSL1GHT's timer backend
+// (src/timer/psl1ght/SDL_systimer.c) implements SDL_GetPerformanceCounter()
+// as SDL_GetTicks() with a frequency of 1000 -- millisecond resolution only,
+// which rounded every reading here to 0.00ms and told us nothing.
+//
+// Deliberately NOT instrumenting PS3GCM_Flip(): the gcmSetFlip()/
+// flush_buffer() sequence is exactly the code that used to hang
+// deterministically under SDL2_PSL1GHT (see project notes on the flip #555
+// bug), and that whole investigation found the failure to be sensitive to
+// extra syscalls placed near the RSX submit -- sometimes masking it,
+// sometimes not. This backend's Flip is proven stable for 17000+ frames
+// specifically because it does nothing but submit and return; keep it that
+// way rather than risk reintroducing timing-dependent flakiness for the
+// sake of a measurement.
+#define PS3GCM_TIMING_FRAMES 30
+static unsigned int ps3gcm_timing_calls = 0;
+
+static u64 ps3gcm_now_us(void)
+{
+	u64 sec = 0, nsec = 0;
+	sysGetCurrentTime(&sec, &nsec);
+	return sec * 1000000ULL + nsec / 1000ULL;
+}
+
+static void ps3gcm_log_us(const char *label, u64 t0_us, u64 t1_us)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugL.txt", "a");
+	if (f)
+	{
+		fprintf(f, "[call#%u] %s: %llu us\n", ps3gcm_timing_calls, label,
+			(unsigned long long)(t1_us - t0_us));
+		fflush(f);
+		fclose(f);
+	}
+}
 
 // ============================================================
 // RSX Context & VRAM Management
@@ -207,6 +247,10 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 	u32 *dst;
 	u32 pitch_pixels;
 	u32 sy;
+	int timing = (ps3gcm_timing_calls < PS3GCM_TIMING_FRAMES);
+	u64 t0 = 0, t1;
+
+	ps3gcm_timing_calls++;
 
 	if (!src || !fb_addr[fb_index])
 		return;
@@ -219,6 +263,9 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 
 	dst = (u32 *)fb_addr[fb_index];
 	pitch_pixels = color_pitch / 4;
+
+	if (timing)
+		t0 = ps3gcm_now_us();
 
 	for (sy = 0; sy < SRC_H; sy++)
 	{
@@ -244,11 +291,20 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 			}
 		}
 	}
+
+	if (timing)
+	{
+		t1 = ps3gcm_now_us();
+		ps3gcm_log_us("PS3GCM_FinishUpdate (palette convert + scale)", t0, t1);
+	}
 }
 
 // ============================================================
 // PS3GCM_Flip — submit flip, no wait
 // ============================================================
+//
+// Deliberately zero instrumentation here -- see the note above
+// PS3GCM_TIMING_FRAMES. This must stay exactly as validated.
 
 void PS3GCM_Flip(void)
 {

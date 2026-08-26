@@ -3029,9 +3029,75 @@ void I_StartupTimer(void)
 	elapsed_frames  = 0.0;
 }
 
+#ifdef _PS3
+#include <sys/systime.h>
+static unsigned int ps3sleep_diag_calls = 0;
+static u64 ps3sleep_now_us(void)
+{
+	u64 sec = 0, nsec = 0;
+	sysGetCurrentTime(&sec, &nsec);
+	return sec * 1000000ULL + nsec / 1000ULL;
+}
+#endif
+
 void I_Sleep(UINT32 ms)
 {
+#ifdef _PS3
+	// SDL_Delay() -> usleep() -> sysUsleep() (LV2 syscall #141) measured at
+	// ~980ms of real wall-clock time per call under RPCS3, regardless of
+	// the requested duration. Switching to a plain busy-spin that re-checks
+	// I_GetPreciseTime() (sysGetCurrentTime(), syscall #145) on every
+	// iteration did NOT fix it -- measured just as ~985ms from the second
+	// call onward (first call was ~1.6ms). That syscall is cheap in
+	// isolation (confirmed elsewhere, sub-millisecond), so the cost here is
+	// from calling it an enormous, unthrottled number of times per real
+	// millisecond in a tight loop -- the aggregate syscall dispatch
+	// overhead under RPCS3 dominates. Fix: only re-check the clock after a
+	// batch of pure CPU work (no syscalls at all), so the syscall is issued
+	// at a bounded rate instead of as fast as the loop can spin.
+	precise_t cur, dest;
+	int diag = (ps3sleep_diag_calls < 40);
+	u64 diag_t0 = 0, diag_t1;
+
+	ps3sleep_diag_calls++;
+	if (diag)
+		diag_t0 = ps3sleep_now_us();
+
+	if (ms == 0)
+	{
+		if (diag)
+		{
+			FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugM.txt", "a");
+			if (f) { fprintf(f, "[#%u] I_Sleep(ms=0) early return\n", ps3sleep_diag_calls); fflush(f); fclose(f); }
+		}
+		return;
+	}
+	cur = I_GetPreciseTime();
+	dest = cur + (precise_t)ms * I_GetPrecisePrecision() / 1000;
+	// signed diff: tolerates the precise counter wrapping (see I_SleepDuration above)
+	do
+	{
+		volatile unsigned int spin;
+		for (spin = 0; spin < 20000; spin++)
+			;
+		cur = I_GetPreciseTime();
+	} while ((INT64)(dest - cur) > 0);
+
+	if (diag)
+	{
+		diag_t1 = ps3sleep_now_us();
+		FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugM.txt", "a");
+		if (f)
+		{
+			fprintf(f, "[#%u] I_Sleep(ms=%u) actual=%llu us\n",
+				ps3sleep_diag_calls, (unsigned)ms, (unsigned long long)(diag_t1 - diag_t0));
+			fflush(f);
+			fclose(f);
+		}
+	}
+#else
 	SDL_Delay(ms);
+#endif
 }
 
 #ifdef NEWSIGNALHANDLER
