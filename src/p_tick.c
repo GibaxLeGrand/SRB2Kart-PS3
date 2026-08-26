@@ -16,6 +16,7 @@
 #include "g_input.h"
 #include "p_local.h"
 #include "z_zone.h"
+#include "d_main.h" // PS3_StackTouch
 #include "s_sound.h"
 #include "st_stuff.h"
 #include "p_polyobj.h"
@@ -306,7 +307,12 @@ static inline void P_RunThinkers(void)
 	for (currentthinker = thinkercap.next; currentthinker != &thinkercap; currentthinker = currentthinker->next)
 	{
 		if (currentthinker->function.acp1)
+		{
+#ifdef _PS3
+			PS3_StackTouch(); // thinkers call into each other
+#endif
 			currentthinker->function.acp1(currentthinker);
+		}
 	}
 }
 

@@ -778,7 +778,55 @@ static void ps3mloop(int iter, const char *step)
 // ---------------------------------------------------------------------------
 #include <sys/systime.h>   // sysGetCurrentTime, sysGetTimebaseFrequency, sysUsleep
 #include <sys/time.h>      // gettimeofday
+#include <sys/thread.h>    // sysThreadGetStackInformation -- see the stack watermark below
 #include <unistd.h>        // usleep
+
+// ---------------------------------------------------------------------------
+// 2026-08-26 -- stack watermark.
+//
+// cdb caught the RPCS3 crash as a host NX fault with RIP = 0: guest code
+// branched through a null code pointer. A smashed return address is the
+// natural way to get one, and running out of stack is the natural way to get
+// that. The suspicion is structural rather than a hunch: TanakaDOOM-cGcm runs
+// the same toolchain and the same kind of software renderer on PS3 without
+// dying, and the one thing it does not have is SDL -- whose PSL1GHT backend
+// hardcodes a 16KB stack for every thread it creates
+// (~/SDL2_PSL1GHT/src/thread/psl1ght/SDL_systhread.c:73, "size_t stack_size =
+// 0x4000"). SRB2's renderer recurses through R_RenderBSPNode and its thinkers
+// call into each other, and "how much stack do we actually use" has never been
+// answered on this port.
+//
+// So measure it. sysThreadGetStackInformation (syscall 49, verified in
+// $PS3DEV/ps3dk/ppu/include/sys/thread.h) gives the running thread's stack
+// buffer; PS3_StackTouch() keeps the lowest stack pointer ever seen and every
+// psdebugS.txt line carries the peak. A compare and a store per call, so it is
+// affordable even inside the BSP recursion.
+// ---------------------------------------------------------------------------
+static u32 ps3stack_base = 0;
+static u32 ps3stack_size = 0;
+static u32 ps3stack_min = 0xFFFFFFFFu;
+
+static void PS3_StackInit(void)
+{
+	sys_ppu_thread_stack_t si;
+
+	si.pst_addr = 0;
+	si.pst_size = 0;
+
+	if (sysThreadGetStackInformation(&si) == 0)
+	{
+		ps3stack_base = (u32)(uintptr_t)si.pst_addr;
+		ps3stack_size = (u32)si.pst_size;
+	}
+}
+
+void PS3_StackTouch(void)
+{
+	u32 sp = (u32)(uintptr_t)__builtin_frame_address(0);
+
+	if (sp < ps3stack_min)
+		ps3stack_min = sp;
+}
 
 // Same idiom as the toolchain's __gettime() macro in
 // $PS3DEV/ps3dk/ppu/include/sys/ppu-asm.h (mftb, retried while it reads 0).
@@ -1079,6 +1127,21 @@ static void PS3_StateLine(u64 now_us, unsigned int frame, unsigned int frame_us,
 		fps_x100 / 100, fps_x100 % 100,
 		what);
 
+	// Stack watermark on the same line: how deep we have ever gone, and how
+	// much room was left at that point. If "left" trends towards zero, the
+	// null-code-pointer crash is stack exhaustion and we are done guessing.
+	if (ps3stack_size != 0)
+	{
+		u32 top = ps3stack_base + ps3stack_size;
+		u32 sp = (u32)(uintptr_t)__builtin_frame_address(0);
+		u32 peak = (ps3stack_min == 0xFFFFFFFFu) ? sp : ps3stack_min;
+
+		fprintf(f, "        stack base=%08x size=%u  now=%u  PEAK=%u  left_at_peak=%d\n",
+			(unsigned)ps3stack_base, (unsigned)ps3stack_size,
+			(unsigned)(top - sp), (unsigned)(top - peak),
+			(int)(peak - ps3stack_base));
+	}
+
 	fflush(f);
 	fclose(f);
 }
@@ -1134,6 +1197,7 @@ static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
 	if (!started)
 	{
 		started = 1;
+		PS3_StackInit();
 		last_gs = gamestate;
 		last_ga = gameaction;
 		last_demo = demo.playback ? 1 : 0;

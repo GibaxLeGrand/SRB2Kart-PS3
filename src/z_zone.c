@@ -30,6 +30,7 @@
 #include "i_system.h" // I_GetFreeMem
 #include "i_video.h" // rendermode
 #include "z_zone.h"
+#include "d_main.h" // PS3_StackTouch
 #include "m_misc.h" // M_Memcpy
 #include "lua_script.h"
 
@@ -242,6 +243,9 @@ void *Z_Malloc2(size_t size, INT32 tag, void *user, INT32 alignbits,
 void *Z_MallocAlign(size_t size, INT32 tag, void *user, INT32 alignbits)
 #endif
 {
+#ifdef _PS3
+	PS3_StackTouch(); // reached from every depth, so this samples P_SetupLevel too
+#endif
 	size_t extrabytes = (1<<alignbits) - (sizeof(size_t)*8 > (UINT32) alignbits); // only subtract 1 if the bit shift did not cause an overflow
 	size_t padsize = 0;
 	memblock_t *block;

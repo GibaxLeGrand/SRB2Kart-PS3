@@ -54,6 +54,11 @@ void D_StartTitle(void);
 // 2026-08-26 -- one-shot checkpoint on the psdebugS.txt timeline. Defined in
 // d_main.c next to PS3_StateWatch; gated by PS3TRACE_MARK.
 void PS3_Mark(const char *what);
+
+// 2026-08-26 -- stack watermark: keeps the lowest stack pointer ever seen.
+// Called from the deepest recursions (R_RenderBSPNode, P_RunThinkers); the
+// result is printed on every psdebugS.txt line. Defined in d_main.c.
+void PS3_StackTouch(void);
 #endif
 
 #endif //__D_MAIN__

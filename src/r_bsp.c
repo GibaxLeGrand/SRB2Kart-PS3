@@ -19,7 +19,8 @@
 #include "r_splats.h"
 #include "p_local.h" // camera
 #include "p_slopes.h"
-#include "z_zone.h" // Check R_Prep3DFloors
+#include "z_zone.h"
+#include "d_main.h" // PS3_StackTouch // Check R_Prep3DFloors
 
 seg_t *curline;
 side_t *sidedef;
@@ -1290,6 +1291,9 @@ void R_RenderBSPNode(INT32 bspnum)
 {
 	node_t *bsp;
 	INT32 side;
+#ifdef _PS3
+	PS3_StackTouch(); // deepest recursion in the software renderer
+#endif
 	while (!(bspnum & NF_SUBSECTOR))  // Found a subsector?
 	{
 		bsp = &nodes[bspnum];
