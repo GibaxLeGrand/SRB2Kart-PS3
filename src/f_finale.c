@@ -1073,6 +1073,10 @@ void F_TitleScreenDrawer(void)
 }
 
 // (no longer) De-Demo'd Title Screen
+// 2026-08-26, temporary: pin the attract demo so reproduction runs are
+// comparable. See the use below. 0 restores the stock random pick.
+#define PS3_FIXED_ATTRACT_DEMO 1
+
 void F_TitleScreenTicker(boolean run)
 {
 	if (run)
@@ -1134,7 +1138,18 @@ void F_TitleScreenTicker(boolean run)
 
 			if (numstaff)
 			{
+#if defined(_PS3) && PS3_FIXED_ATTRACT_DEMO
+				// 2026-08-26, temporary. The attract demo normally picks a
+				// replay at random, so every crash-reproduction run loaded a
+				// different map -- 552 map things one run, 708 the next. That
+				// made "the death point moves between runs" partly an artefact
+				// of changing the input, not a property of the bug. Pinning it
+				// makes runs comparable, which is what bisection needs.
+				// Set PS3_FIXED_ATTRACT_DEMO to 0 for the stock random pick.
+				numstaff = 1;
+#else
 				numstaff = M_RandomKey(numstaff)+1;
+#endif
 				snprintf(dname, 9, "TDEMO%03u", numstaff);
 				goto loadreplay;
 			}
