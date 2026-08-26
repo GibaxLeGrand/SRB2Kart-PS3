@@ -139,6 +139,25 @@ int main(int argc, char **argv)
 	myargc = argc;
 	myargv = argv; /// \todo pull out path to exe from this string
 
+#ifdef _PS3
+	// 2026-08-26 -- deliberately the first thing that touches the file system.
+	// The first hardware attempt left no psdebug file at all, so there was no
+	// way to tell whether main() had even been reached. This writes to an
+	// absolute path rather than through srb2home (still "." this early) or the
+	// working directory (not USRDIR when launched from the XMB), so if the
+	// file is missing the process died before entering main.
+	{
+		FILE *ps3boot = fopen(PS3_INSTALLDIR "/psdebug_boot.txt", "w");
+		if (ps3boot)
+		{
+			fprintf(ps3boot, "B1 main() reached, argc=%d, argv0=%s\n",
+				argc, (argc > 0 && argv && argv[0]) ? argv[0] : "(null)");
+			fflush(ps3boot);
+			fclose(ps3boot);
+		}
+	}
+#endif
+
 #ifdef HAVE_TTF
 #ifdef _WIN32
 	I_StartupTTF(FONTPOINTSIZE, SDL_INIT_VIDEO|SDL_INIT_AUDIO, SDL_SWSURFACE);

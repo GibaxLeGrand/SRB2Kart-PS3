@@ -1226,6 +1226,20 @@ const char *PS3_DebugPath(const char *name)
 
 	slot = (slot + 1) & 3;
 	out = buf[slot];
+
+	// srb2home keeps its "." default until D_SRB2Main reaches the config
+	// section, and the earliest traces run before that -- i_main.c writes
+	// "M1 before D_SRB2Main" already. Under RPCS3 a relative path landed in
+	// the right place anyway, because the emulator's working directory is the
+	// EBOOT's own directory; launched from a real XMB it is not, so those
+	// traces were silently lost. They are exactly the ones worth having when a
+	// boot fails early, which is what a first hardware test tends to do.
+	if (srb2home[0] == '\0' || (srb2home[0] == '.' && srb2home[1] == '\0'))
+	{
+		snprintf(out, sizeof buf[0], "%s/%s", PS3_INSTALLDIR, name);
+		return out;
+	}
+
 	snprintf(out, sizeof buf[0], "%s%s%s", srb2home,
 		(srb2home[0] && srb2home[strlen(srb2home) - 1] == '/') ? "" : "/", name);
 	return out;

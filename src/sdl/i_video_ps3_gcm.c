@@ -292,13 +292,83 @@ void PS3GCM_VideoInit(void)
 
 	vram_init();
 
+	// ------------------------------------------------------------------
+	// Video mode. 2026-08-26: instrumented after the first real-hardware
+	// attempt showed a red flash and a drop back to the XMB.
+	//
+	// This used to force VIDEO_RESOLUTION_720 and ignore every return value.
+	// RPCS3 always accepts 720p, so the assumption was never tested; a real
+	// console attached to a display that cannot do 720p would leave the RSX
+	// scanning out whatever happened to be in memory, which is what a red
+	// flash looks like. Ask the console what it can do, say so in the log,
+	// and record what we actually got rather than what we asked for.
 	{
+		videoState vstate;
+		videoResolution vres;
 		videoConfiguration vconfig;
+		s32 rc_state, rc_avail, rc_conf;
+		FILE *vf;
+
+		memset(&vstate, 0, sizeof vstate);
+		memset(&vres, 0, sizeof vres);
+
+		rc_state = videoGetState(0, 0, &vstate);
+		videoGetResolution(vstate.displayMode.resolution, &vres);
+		rc_avail = videoGetResolutionAvailability(0, VIDEO_RESOLUTION_720,
+			vstate.displayMode.aspect, 0);
+
+		vf = fopen(PS3_DebugPath("psdebugV.txt"), "a");
+		if (vf)
+		{
+			fprintf(vf, "videoGetState rc=%d state=%u colorSpace=%u\n",
+				(int)rc_state, (unsigned)vstate.state, (unsigned)vstate.colorSpace);
+			fprintf(vf, "  mode actuel: resolution=%u (%ux%u) scanMode=%u aspect=%u refresh=0x%04x\n",
+				(unsigned)vstate.displayMode.resolution,
+				(unsigned)vres.width, (unsigned)vres.height,
+				(unsigned)vstate.displayMode.scanMode,
+				(unsigned)vstate.displayMode.aspect,
+				(unsigned)vstate.displayMode.refreshRates);
+			// Raw value on purpose. Under RPCS3 this returns 0 while 720p
+			// then configures perfectly, so the emulator is very likely
+			// stubbing it -- do not read 0 as "unavailable" without a real
+			// console to compare against. What actually decides the outcome
+			// is the mode reported after videoConfigure, further down.
+			fprintf(vf, "  videoGetResolutionAvailability(720p) -> %d (brut ; RPCS3 renvoie 0 alors que le 720p marche)\n",
+				(int)rc_avail);
+			fflush(vf);
+		}
+
 		memset(&vconfig, 0, sizeof(vconfig));
 		vconfig.resolution = VIDEO_RESOLUTION_720;
 		vconfig.format     = VIDEO_BUFFER_FORMAT_XRGB;
 		vconfig.pitch      = PS3_SCREEN_W * 4;
-		videoConfigure(0, &vconfig, NULL, 0);
+		vconfig.aspect     = vstate.displayMode.aspect;
+		rc_conf = videoConfigure(0, &vconfig, NULL, 0);
+
+		memset(&vstate, 0, sizeof vstate);
+		memset(&vres, 0, sizeof vres);
+		videoGetState(0, 0, &vstate);
+		videoGetResolution(vstate.displayMode.resolution, &vres);
+
+		if (vf)
+		{
+			fprintf(vf, "videoConfigure(720p, XRGB, pitch=%d) -> %d\n",
+				(int)(PS3_SCREEN_W * 4), (int)rc_conf);
+			fprintf(vf, "  mode obtenu: resolution=%u (%ux%u) aspect=%u\n",
+				(unsigned)vstate.displayMode.resolution,
+				(unsigned)vres.width, (unsigned)vres.height,
+				(unsigned)vstate.displayMode.aspect);
+			if (vres.width != PS3_SCREEN_W || vres.height != PS3_SCREEN_H)
+				fprintf(vf, "  *** ATTENTION: %ux%u au lieu de %dx%d -- le scaler et les"
+					" framebuffers sont dimensionnes pour %dx%d ***\n",
+					(unsigned)vres.width, (unsigned)vres.height,
+					PS3_SCREEN_W, PS3_SCREEN_H, PS3_SCREEN_W, PS3_SCREEN_H);
+			fflush(vf);
+			fclose(vf);
+		}
+
+		fprintf(stderr, "[SRB2Kart PS3] video: demande 720p rc=%d, obtenu %ux%u\n",
+			(int)rc_conf, (unsigned)vres.width, (unsigned)vres.height);
 	}
 
 	color_pitch = 4 * ((PS3_SCREEN_W + 15) / 16) * 16;
