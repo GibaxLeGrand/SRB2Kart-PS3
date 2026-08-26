@@ -3920,7 +3920,7 @@ extern int ps3_debugtrace; // d_main.c
 static void ps3cs(const char *msg) {
 	FILE *f;
 	if (!(ps3_debugtrace & 8)) return; // PS3TRACE_LOGIC, d_main.c
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebug8.txt", "a");
+	f = fopen(PS3_DebugPath("psdebug8.txt"), "a");
 	ps3csseq++;
 	if (f) { fprintf(f, "[#%d] %s\n", ps3csseq, msg); fflush(f); fclose(f); }
 }
@@ -6078,7 +6078,7 @@ boolean TryRunTics(tic_t realtics)
 			ps3pjcalls++;
 			if (ps3pjcalls <= 100)
 			{
-				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugG.txt", "a");
+				FILE *pf = fopen(PS3_DebugPath("psdebugG.txt"), "a");
 				if (pf) { fprintf(pf, "[pj#%d] player_joining=true neededtic=%u gametic=%u maketic=%u\n", ps3pjcalls, neededtic, gametic, maketic); fflush(pf); fclose(pf); }
 			}
 		}

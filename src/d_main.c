@@ -295,7 +295,7 @@ static void ps3d(const char *msg)
 
 	if (!ps3dtrace)
 		return;
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
+	f = fopen(PS3_DebugPath("psdebugA.txt"), "a");
 	if (f) { fprintf(f, "[disp#%d] %s\n", ps3dispcalls, msg); fflush(f); fclose(f); }
 }
 #endif
@@ -745,12 +745,12 @@ tic_t rendergametic;
 #ifdef _PS3
 static void ps3m(const char *msg)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug2.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug2.txt"), "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
 static void ps3mloop(int iter, const char *step)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug9.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug9.txt"), "a");
 	if (f) { fprintf(f, "F%d %s\n", iter, step); fflush(f); fclose(f); }
 }
 
@@ -922,7 +922,7 @@ static void PS3_ClockProbe(void)
 	if (ps3prof_tbfreq == 0)
 		ps3prof_tbfreq = 79800000ULL;
 
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebugN.txt", "a");
+	f = fopen(PS3_DebugPath("psdebugN.txt"), "a");
 	if (!f)
 		return;
 
@@ -1038,7 +1038,7 @@ static void PS3_ProfMean(FILE *f, const char *label, int lo, int hi, int want)
 
 static void PS3_ProfDump(void)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugO.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugO.txt"), "a");
 	int i;
 
 	if (!f)
@@ -1112,7 +1112,7 @@ static u64 ps3state_epoch_tb = 0;
 
 static void PS3_StateLine(u64 now_us, unsigned int frame, unsigned int frame_us, const char *what)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugS.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugS.txt"), "a");
 	unsigned int fps_x100;
 
 	if (!f)
@@ -1211,6 +1211,24 @@ int PS3_BadAction(const char *where, INT32 statenum, void *fn)
 	}
 
 	return 1;
+}
+
+// 2026-08-26 -- debug files follow srb2home instead of a hardcoded path.
+// D_Home() now points at the package USRDIR when the title is installed, so
+// on real hardware these land next to the game instead of failing to open in
+// a directory that does not exist. Returns a rotating set of static buffers
+// so a caller can hold two paths at once without surprises.
+const char *PS3_DebugPath(const char *name)
+{
+	static char buf[4][320];
+	static int slot = 0;
+	char *out;
+
+	slot = (slot + 1) & 3;
+	out = buf[slot];
+	snprintf(out, sizeof buf[0], "%s%s%s", srb2home,
+		(srb2home[0] && srb2home[strlen(srb2home) - 1] == '/') ? "" : "/", name);
+	return out;
 }
 
 void PS3_Mark(const char *what)
@@ -2162,7 +2180,7 @@ void D_SRB2Main(void)
 	I_StartupGraphics();
 #ifdef _PS3
 	{
-		FILE *ps3f = fopen("/dev_hdd0/game/SRB2KART/psdebug.txt", "a");
+		FILE *ps3f = fopen(PS3_DebugPath("psdebug.txt"), "a");
 		if (ps3f) { fputs("O after I_StartupGraphics call returns\n", ps3f); fflush(ps3f); fclose(ps3f); }
 	}
 #endif
@@ -2537,10 +2555,23 @@ const char *D_Home(void)
 	return "/data/data/org.srb2/";
 #endif
 #ifdef _PS3
-	// /app_home (where srb2.srb etc. live) is the read-only game content
-	// dir; /dev_hdd0 is where RPCS3 (and a real PS3) mount writable
-	// persistent storage.
-	return "/dev_hdd0/game/SRB2KART/";
+	// Writable, persistent storage for config, saves and the debug logs.
+	//
+	// 2026-08-26: prefer the package's own USRDIR when the title is actually
+	// installed. Launched from the XMB there is no /app_home and nothing else
+	// is reliably writable, so a package that kept writing to a hardcoded
+	// /dev_hdd0/game/SRB2KART/ would silently lose its config and, worse, its
+	// psdebugS.txt -- which is the only way we can see what a run did on real
+	// hardware. Fall back to the old path when that directory is absent, so
+	// running the bare .self under RPCS3 keeps behaving exactly as before.
+	{
+		struct stat ps3st;
+
+		if (stat(PS3_INSTALLDIR, &ps3st) == 0 && S_ISDIR(ps3st.st_mode))
+			return PS3_INSTALLDIR "/";
+
+		return "/dev_hdd0/game/SRB2KART/";
+	}
 #endif
 #ifdef _arch_dreamcast
 	char VMUHOME[] = "HOME=/vmu/a1";

@@ -1424,7 +1424,7 @@ static void ps3fu(const char *msg)
 	FILE *f;
 	if (!ps3futrace)
 		return;
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebugB.txt", "a");
+	f = fopen(PS3_DebugPath("psdebugB.txt"), "a");
 	if (f) { fprintf(f, "[fu#%d] %s\n", ps3fucalls, msg); fflush(f); fclose(f); }
 }
 static void ps3rsxnudge(void)
@@ -1444,7 +1444,7 @@ static void ps3rsxnudge(void)
 	// to sometimes avoid hitting it). Testing the real fix in isolation.
 	if (1)
 		return;
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugC.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugC.txt"), "a");
 	if (f)
 	{
 		fputs("x\n", f);
@@ -1988,7 +1988,7 @@ OpenRendererFile (const char * mode)
 #include <stdio.h>
 static void ps3dbg(const char *msg)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug.txt"), "a");
 	if (f)
 	{
 		fputs(msg, f);

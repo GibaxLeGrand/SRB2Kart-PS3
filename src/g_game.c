@@ -2432,7 +2432,7 @@ static void ps3gt2(const char *msg)
 	FILE *f;
 	if (!(ps3_debugtrace & 8)) return; // PS3TRACE_LOGIC, d_main.c
 	ps3gt2seq++;
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebugI.txt", "a");
+	f = fopen(PS3_DebugPath("psdebugI.txt"), "a");
 	if (f) { fprintf(f, "[#%d] %s\n", ps3gt2seq, msg); fflush(f); fclose(f); }
 }
 #else
@@ -2561,7 +2561,7 @@ void G_Ticker(boolean run)
 				ps3gtcalls++;
 				if (ps3gtcalls <= 60)
 				{
-					FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugE.txt", "a");
+					FILE *f = fopen(PS3_DebugPath("psdebugE.txt"), "a");
 					if (f) { fprintf(f, "[gt#%d] run=%d gametic=%u\n", ps3gtcalls, (int)run, gametic); fflush(f); fclose(f); }
 				}
 			}

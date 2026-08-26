@@ -726,7 +726,7 @@ void R_ExecuteSetViewSize(void)
 #include <stdio.h>
 static void ps3r(const char *msg)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug3.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug3.txt"), "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
 #else

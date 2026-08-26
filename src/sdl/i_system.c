@@ -147,9 +147,19 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 #define DEFAULTSEARCHPATH2 "/usr/games"
 #define DEFAULTSEARCHPATH3 "/usr/local"
 #elif defined (_PS3)
-// No real POSIX "current directory" concept -- RPCS3 (and a real PS3's
-// game loader) mount the app's own content directory at /app_home.
-#define DEFAULTWADLOCATION1 "/app_home"
+// 2026-08-26: two locations now, and the order matters.
+//
+// /app_home is the app's own content directory, but only when something
+// mounts it -- RPCS3 does, and so does ps3load and the rest of the dev
+// tooling. A title installed from a .pkg and launched from the XMB gets no
+// /app_home at all, so a package relying on it would boot and then fail to
+// find srb2.srb on real hardware.
+//
+// PS3_INSTALLDIR (doomdef.h) is where the package actually puts its files.
+// These macros are only expanded further down, well after doomdef.h has been
+// included, so defining them here is fine.
+#define DEFAULTWADLOCATION1 PS3_INSTALLDIR
+#define DEFAULTWADLOCATION2 "/app_home"
 #endif
 
 /**	\brief WAD file to look for

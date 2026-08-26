@@ -430,6 +430,14 @@ enum {
 	LE_BRAKVILEATACK   = -6  // Brak's doing his LOS attack, oh noes
 };
 
+#ifdef _PS3
+// 2026-08-26 -- where the .pkg installs the game on a real PS3. Must stay in
+// step with APPID in package_srb2kart_pkg.sh; grep for SRB2K00001 to see every
+// place it appears. Used both to find srb2.srb (sdl/i_system.c) and to decide
+// where to write config, saves and debug logs (D_Home in d_main.c).
+#define PS3_INSTALLDIR "/dev_hdd0/game/SRB2K00001/USRDIR"
+#endif
+
 // Name of local directory for config files and savegames
 #if !defined(_arch_dreamcast) && !defined(_WIN32_WCE) && !defined(GP2X) && !defined(_WII) && !defined(_PS3)
 #if (((defined (__unix__) && !defined (MSDOS)) || defined (UNIXCOMMON)) && !defined (__CYGWIN__)) && !defined (__APPLE__)

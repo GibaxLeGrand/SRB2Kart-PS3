@@ -43,7 +43,7 @@
 #include <sys/systime.h> // sysGetCurrentTime -- real microsecond timing (see i_video_ps3_gcm.c for why not I_GetPreciseTime)
 static void ps3fw(const char *msg)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugA.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugA.txt"), "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
 static UINT64 ps3fw_now_us(void)
@@ -57,7 +57,7 @@ static UINT64 ps3fw_now_us(void)
 // *that* something ran, not how long it actually took).
 static void ps3fw_us(const char *label, UINT64 t0, UINT64 t1)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugK.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugK.txt"), "a");
 	if (f)
 	{
 		fprintf(f, "%s: %llu us\n", label, (unsigned long long)(t1 - t0));

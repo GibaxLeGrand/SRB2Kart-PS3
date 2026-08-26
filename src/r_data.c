@@ -21,6 +21,7 @@
 #include "r_data.h"
 #include "w_wad.h"
 #include "z_zone.h"
+#include "d_main.h" // PS3_DebugPath
 #include "p_setup.h" // levelflats
 #include "v_video.h" // pLocalPalette
 #include "dehacked.h"
@@ -29,7 +30,7 @@
 #include <stdio.h>
 static void ps3rd(const char *msg)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug4.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
 #else

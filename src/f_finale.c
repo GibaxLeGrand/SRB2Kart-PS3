@@ -292,7 +292,7 @@ static void ps3it(int fc, int ttn, int scn)
 	ps3itcalls++;
 	if (ps3itcalls > 300)
 		return;
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebugD.txt", "a");
+	f = fopen(PS3_DebugPath("psdebugD.txt"), "a");
 	if (f) { fprintf(f, "[it#%d] finalecount=%d timetonext=%d scenenum=%d gametic=%u\n", ps3itcalls, fc, ttn, scn, gametic); fflush(f); fclose(f); }
 }
 #else
@@ -318,7 +318,7 @@ void F_IntroTicker(void)
 		{
 #ifdef _PS3
 			{
-				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+				FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 				if (pf) { fputs("IT1 timetonext<=0, transition starting\n", pf); fflush(pf); fclose(pf); }
 			}
 #endif
@@ -332,7 +332,7 @@ void F_IntroTicker(void)
 			}
 #ifdef _PS3
 			{
-				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+				FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 				if (pf) { fputs("IT2 after F_RunWipe, before quittime loop\n", pf); fflush(pf); fclose(pf); }
 			}
 #endif
@@ -349,7 +349,7 @@ void F_IntroTicker(void)
 			}
 #ifdef _PS3
 			{
-				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+				FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 				if (pf) { fputs("IT3 after quittime loop, before D_StartTitle\n", pf); fflush(pf); fclose(pf); }
 			}
 #endif
@@ -357,7 +357,7 @@ void F_IntroTicker(void)
 			D_StartTitle();
 #ifdef _PS3
 			{
-				FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+				FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 				if (pf) { fputs("IT4 after D_StartTitle\n", pf); fflush(pf); fclose(pf); }
 			}
 #endif
@@ -377,14 +377,14 @@ void F_IntroTicker(void)
 
 #ifdef _PS3
 	{
-		FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+		FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 		if (pf) { fputs("IT_beforeWriteText\n", pf); fflush(pf); fclose(pf); }
 	}
 #endif
 	F_WriteText();
 #ifdef _PS3
 	{
-		FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+		FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 		if (pf) { fputs("IT_afterWriteText\n", pf); fflush(pf); fclose(pf); }
 	}
 #endif
@@ -394,7 +394,7 @@ void F_IntroTicker(void)
 		keypressed = false;
 #ifdef _PS3
 	{
-		FILE *pf = fopen("/dev_hdd0/game/SRB2KART/psdebugF.txt", "a");
+		FILE *pf = fopen(PS3_DebugPath("psdebugF.txt"), "a");
 		if (pf) { fputs("IT_END\n", pf); fflush(pf); fclose(pf); }
 	}
 #endif

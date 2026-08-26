@@ -17,6 +17,7 @@
 #include <cell/gcm/ps3tc_fifo_wrap.h> // ps3tc_fifo_wrap_install -- see PS3GCM_VideoInit
 
 #include "i_video_ps3_gcm.h"
+#include "../d_main.h" // PS3_DebugPath
 #include "../screen.h" // BASEVIDWIDTH, BASEVIDHEIGHT
 
 // Wall-clock timing for PS3GCM_FinishUpdate, to find out whether the CPU
@@ -48,7 +49,7 @@ static u64 ps3gcm_now_us(void)
 
 static void ps3gcm_log_us(const char *label, u64 t0_us, u64 t1_us)
 {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugL.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugL.txt"), "a");
 	if (f)
 	{
 		fprintf(f, "[call#%u] %s: %llu us\n", ps3gcm_timing_calls, label,
@@ -168,7 +169,7 @@ static u32 ps3gcm_ptr32(const void *p)
 static void ps3gcm_fifo_line(const char *why, u32 cur)
 {
 	gcmControlRegister volatile *ctrl = gcmGetControlRegister();
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugS.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebugS.txt"), "a");
 	u32 begin = ps3gcm_ptr32(context->begin);
 	u32 end = ps3gcm_ptr32(context->end);
 

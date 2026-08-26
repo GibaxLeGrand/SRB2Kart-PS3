@@ -107,7 +107,7 @@ static UINT16 lumpnumcacheindex = 0;
 
 #ifdef _PS3
 static void ps3ww(const char *msg) {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug5.txt", "a");
+	FILE *f = fopen(PS3_DebugPath("psdebug5.txt"), "a");
 	if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); }
 }
 #else

@@ -1295,7 +1295,7 @@ extern int ps3_debugtrace; // d_main.c
 static void ps3n(const char *msg) {
 	FILE *f;
 	if (!(ps3_debugtrace & 8)) return; // PS3TRACE_LOGIC, d_main.c
-	f = fopen("/dev_hdd0/game/SRB2KART/psdebug7.txt", "a");
+	f = fopen(PS3_DebugPath("psdebug7.txt"), "a");
 	ps3nseq++;
 	if (f) { fprintf(f, "[#%d] %s\n", ps3nseq, msg); fflush(f); fclose(f); }
 }
