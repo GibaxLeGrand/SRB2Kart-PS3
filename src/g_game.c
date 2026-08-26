@@ -107,8 +107,20 @@ boolean runemeraldmanager = false;
 
 // menu demo things
 UINT8  numDemos      = 0; //3; -- i'm FED UP of losing my skincolour to a broken demo. change this back when we make new ones
+// 2026-08-26 -- PS3 experiment, temporary. The attract demo normally starts at
+// tic 770 (title screen at tic 140, + 525 delay + 105 idle), and that is where
+// RPCS3 dies, reproducibly, in three runs. Starting it at tic ~245 instead
+// tests whether the failure follows the demo transition or sits at a fixed
+// elapsed time / flip count, and shortens each test run by 15 seconds.
+// Set PS3_FAST_ATTRACT_DEMO back to 0 to restore stock timing.
+#define PS3_FAST_ATTRACT_DEMO 1
+#if defined(_PS3) && PS3_FAST_ATTRACT_DEMO
+UINT32 demoDelayTime = 2*TICRATE;
+UINT32 demoIdleTime  = 1*TICRATE;
+#else
 UINT32 demoDelayTime = 15*TICRATE;
 UINT32 demoIdleTime  = 3*TICRATE;
+#endif
 
 boolean nodrawers; // for comparative timing purposes
 boolean noblit; // for comparative timing purposes
@@ -1799,6 +1811,10 @@ void G_DoLoadLevel(boolean resetplayer)
 {
 	INT32 i;
 
+#ifdef _PS3
+	PS3_Mark("MARK M4 G_DoLoadLevel entry");
+#endif
+
 	// Make sure objectplace is OFF when you first start the level!
 	OP_ResetObjectplace();
 
@@ -1821,12 +1837,18 @@ void G_DoLoadLevel(boolean resetplayer)
 	}
 
 	// Setup the level.
+#ifdef _PS3
+	PS3_Mark("MARK M5 before P_SetupLevel");
+#endif
 	if (!P_SetupLevel(false))
 	{
 		// fail so reset game stuff
 		Command_ExitGame_f();
 		return;
 	}
+#ifdef _PS3
+	PS3_Mark("MARK M6 after P_SetupLevel");
+#endif
 
 	if (!resetplayer)
 		P_FindEmerald();
@@ -1864,6 +1886,9 @@ void G_DoLoadLevel(boolean resetplayer)
 
 	// clear hud messages remains (usually from game startup)
 	CON_ClearHUD();
+#ifdef _PS3
+	PS3_Mark("MARK M7 G_DoLoadLevel exit");
+#endif
 }
 
 static INT32 pausedelay = 0;
@@ -4731,6 +4756,10 @@ void G_InitNew(UINT8 pencoremode, const char *mapname, boolean resetplayer, bool
 {
 	INT32 i;
 
+#ifdef _PS3
+	PS3_Mark("MARK M3 G_InitNew entry");
+#endif
+
 	if (paused)
 	{
 		paused = false;
@@ -7495,6 +7524,13 @@ void G_DoPlayDemo(char *defdemoname)
 	boolean spectator;
 	UINT8 slots[MAXPLAYERS], kartspeed[MAXPLAYERS], kartweight[MAXPLAYERS], numslots = 0;
 
+#ifdef _PS3
+	// 2026-08-26 -- checkpoints for the title-screen -> attract-demo transition,
+	// which is where RPCS3 dies (three runs, always between tic 736 and 771).
+	// One-shot path, so a handful of 903us writes is affordable here.
+	PS3_Mark("MARK M1 G_DoPlayDemo entry");
+#endif
+
 	G_InitDemoRewind();
 
 	skin[16] = '\0';
@@ -7984,7 +8020,13 @@ post_compat:
 #endif
 
 	P_SetRandSeed(randseed);
+#ifdef _PS3
+	PS3_Mark("MARK M2 G_DoPlayDemo before G_InitNew");
+#endif
 	G_InitNew(demoflags & DF_ENCORE, G_BuildMapName(gamemap), true, true); // Doesn't matter whether you reset or not here, given changes to resetplayer.
+#ifdef _PS3
+	PS3_Mark("MARK M8 G_DoPlayDemo after G_InitNew");
+#endif
 
 	for (i = 0; i < MAXPLAYERS; i++)
 	{
@@ -8004,6 +8046,9 @@ post_compat:
 	}
 
 	demo.deferstart = true;
+#ifdef _PS3
+	PS3_Mark("MARK M9 G_DoPlayDemo exit");
+#endif
 }
 #undef SKIPERRORS
 

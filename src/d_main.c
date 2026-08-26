@@ -271,6 +271,8 @@ gamestate_t wipegamestate = GS_LEVEL;
 
 #ifdef _PS3
 extern int ps3_debugtrace; // defined below, next to the profiler
+extern int ps3_norender3d; // defined below; bisection knob, see R_RenderPlayerView call
+extern int ps3_noaudio;    // defined below; bisection knob, see I_StartupSound call
 static int ps3dispcalls = 0;
 static boolean ps3dtrace = false;
 static void ps3d(const char *msg)
@@ -357,10 +359,19 @@ static void D_Display(void)
 			if (gamestate != GS_LEVEL // fades to black on its own timing, always
 			 && wipedefs[wipedefindex] != UINT8_MAX)
 			{
+#ifdef _PS3
+				PS3_Mark("MARK W1 fade-to-black wipe, before F_WipeStartScreen");
+#endif
 				F_WipeStartScreen();
 				V_DrawFill(0, 0, BASEVIDWIDTH, BASEVIDHEIGHT, 31);
 				F_WipeEndScreen();
+#ifdef _PS3
+				PS3_Mark("MARK W2 fade-to-black wipe, before F_RunWipe");
+#endif
 				F_RunWipe(wipedefs[wipedefindex], gamestate != GS_TIMEATTACK);
+#ifdef _PS3
+				PS3_Mark("MARK W3 fade-to-black wipe done");
+#endif
 			}
 
 			if (gamestate != GS_LEVEL && rendermode != render_none)
@@ -369,7 +380,13 @@ static void D_Display(void)
 				R_ReInitColormaps(0, LUMPERROR);
 			}
 
+#ifdef _PS3
+			PS3_Mark("MARK W4 before the second F_WipeStartScreen");
+#endif
 			F_WipeStartScreen();
+#ifdef _PS3
+			PS3_Mark("MARK W5 after the second F_WipeStartScreen");
+#endif
 		}
 		else //dedicated servers
 		{
@@ -543,6 +560,15 @@ static void D_Display(void)
 							topleft = screens[0] + viewwindowy*vid.width + viewwindowx;
 						}
 
+#ifdef _PS3
+						// 2026-08-26 -- bisection knob, temporary. The title
+						// screen survives 183s at 60fps with rolling demos
+						// off; every failure so far needs GS_LEVEL. Skipping
+						// only the 3D view (level load, game logic, HUD and
+						// wipes all still run) says whether the software
+						// renderer itself is what kills RPCS3.
+						if (!ps3_norender3d)
+#endif
 						R_RenderPlayerView(&players[displayplayers[i]]);
 
 						if (i > 0)
@@ -638,14 +664,17 @@ static void D_Display(void)
 		{
 #ifdef _PS3
 			ps3d("D7 before F_WipeEndScreen");
+			PS3_Mark("MARK W6 wipe update, before F_WipeEndScreen");
 #endif
 			F_WipeEndScreen();
 #ifdef _PS3
 			ps3d("D7b after F_WipeEndScreen, before F_RunWipe");
+			PS3_Mark("MARK W7 wipe update, before F_RunWipe");
 #endif
 			F_RunWipe(wipedefs[wipedefindex], gamestate != GS_TIMEATTACK);
 #ifdef _PS3
 			ps3d("D8 after F_RunWipe");
+			PS3_Mark("MARK W8 wipe update done");
 #endif
 		}
 	}
@@ -801,12 +830,31 @@ static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at pr
 #define PS3TRACE_LOGIC    8	// ps3cs / ps3n / ps3gt2, game logic, furthest from the RSX
 #define PS3TRACE_DISPLAY_SYNC 16	// ps3d sites issue a "sync" barrier instead of writing
 #define PS3TRACE_STATE       32	// psdebugS.txt game-state log (cheap, see PS3_StateWatch)
+#define PS3TRACE_FIFO        64	// command-FIFO watch in i_video_ps3_gcm.c (cheap, ~30 lines/lap)
+#define PS3TRACE_MARK       128	// PS3_Mark() checkpoints on one-shot paths (cheap, ~10 lines)
 
 // Shipping value. DISPLAY_SYNC is a WORKAROUND, not a fix: without some
 // serialisation at the ps3d sites the game does not survive two intro tics,
 // and nobody has established why. STATE is the psdebugS.txt progress log.
 // The file-writing families (LOOP/DISPLAY/FINISH/LOGIC) stay off -- 903us each.
-int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE;
+//
+// 2026-08-26 ~17:00: FIFO added, and the answer came back negative -- the FIFO
+// wraps cleanly every ~250 flips and the crash lands 145 frames off one. Kept
+// on because it is nearly free and it dates the wraps on the same timeline.
+// ~18:50: MARK added to walk the title-screen -> attract-demo transition.
+int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE | PS3TRACE_FIFO | PS3TRACE_MARK;
+
+// 2026-08-26 -- bisection knobs, temporary, NOT shipping options. Set both
+// back to 0 once the questions they answer are settled.
+//
+// ps3_norender3d: skips R_RenderPlayerView, leaving the rest of the level path
+// intact. ANSWERED 19:23 -- still died, inside P_SetupLevel, so the software 3D
+// renderer is not the culprit.
+//
+// ps3_noaudio: never opens the audio device, so no SDL audio callback thread
+// exists. See the call site in D_SRB2Main for why that is the next suspect.
+int ps3_norender3d = 0;
+int ps3_noaudio = 0;
 
 static unsigned int ps3prof_total[PS3PROF_FRAMES];
 static unsigned int ps3prof_tics[PS3PROF_FRAMES];
@@ -1035,6 +1083,33 @@ static void PS3_StateLine(u64 now_us, unsigned int frame, unsigned int frame_us,
 	fclose(f);
 }
 
+// 2026-08-26 -- one-off checkpoint on the same psdebugS.txt timeline.
+//
+// For tracing a path that runs once, where a per-frame trace family would be
+// both too expensive and too noisy. Written for the title-screen -> attract
+// demo transition, which three runs have now pinned as the place RPCS3 dies:
+// the last heartbeat is always tic 736, and the demo starts at tic 770.
+//
+// Gated by PS3TRACE_MARK so it costs nothing when off, and it is on a
+// once-per-transition path rather than a per-frame one, so the 903us a debug
+// write costs is affordable here in a way it is not in D_Display.
+static unsigned int ps3state_frame = 0;
+static unsigned int ps3state_frame_us = 0;
+
+void PS3_Mark(const char *what)
+{
+	u64 now_us;
+
+	if (!(ps3_debugtrace & PS3TRACE_MARK))
+		return;
+
+	if (ps3state_epoch_tb == 0)
+		ps3state_epoch_tb = ps3prof_tb();
+	now_us = PS3PROF_TB2US(ps3prof_tb() - ps3state_epoch_tb);
+
+	PS3_StateLine(now_us, ps3state_frame, ps3state_frame_us, what);
+}
+
 static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
 {
 	static int started = 0;
@@ -1045,6 +1120,9 @@ static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
 	static u64 next_beat_us;
 	char line[192];
 	u64 now_us;
+
+	ps3state_frame = frame;
+	ps3state_frame_us = frame_us;
 
 	if (!(ps3_debugtrace & PS3TRACE_STATE))
 		return;
@@ -2105,10 +2183,29 @@ void D_SRB2Main(void)
 	 ))
 	{
 		CONS_Printf("S_InitSfxChannels(): Setting up sound channels.\n");
+#ifdef _PS3
+		// 2026-08-26 -- bisection knob, temporary, NOT a shipping option.
+		// The audio device opens and starts an SDL callback thread even
+		// though nothing is audible (SDL_OpenAudio is called with the same
+		// pointer for desired and obtained, and the psl1ght backend only
+		// takes AUDIO_F32MSB, so I_UpdateStream just memsets). P_SetupLevel
+		// calls S_StopSounds()/S_ClearSfx() and then Z_FreeTags(PU_LEVEL..),
+		// which frees sfx data the audio thread may still be walking. That
+		// race would only ever fire on a level load -- which is exactly the
+		// pattern: the title screen survives 183s, every death needs the
+		// level path. Skipping the device removes the second thread.
+		if (!ps3_noaudio)
+		{
+#endif
 		I_StartupSound();
 		ps3m("P16 after I_StartupSound");
 		I_InitMusic();
 		ps3m("P17 after I_InitMusic");
+#ifdef _PS3
+		}
+		else
+			CONS_Printf("[PS3] audio device NOT opened (ps3_noaudio bisection)\n");
+#endif
 		S_InitSfxChannels(cv_soundvolume.value);
 		ps3m("P18 after S_InitSfxChannels");
 		S_InitMusicDefs();

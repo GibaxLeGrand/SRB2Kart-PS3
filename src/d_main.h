@@ -50,4 +50,10 @@ const char *D_Home(void);
 //
 void D_StartTitle(void);
 
+#ifdef _PS3
+// 2026-08-26 -- one-shot checkpoint on the psdebugS.txt timeline. Defined in
+// d_main.c next to PS3_StateWatch; gated by PS3TRACE_MARK.
+void PS3_Mark(const char *what);
+#endif
+
 #endif //__D_MAIN__

@@ -14,6 +14,7 @@
 #include <rsx/gcm_sys.h>
 #include <sysutil/video.h>
 #include <sys/systime.h> // sysGetCurrentTime -- real microsecond timing, see note below
+#include <cell/gcm/ps3tc_fifo_wrap.h> // ps3tc_fifo_wrap_install -- see PS3GCM_VideoInit
 
 #include "i_video_ps3_gcm.h"
 #include "../screen.h" // BASEVIDWIDTH, BASEVIDHEIGHT
@@ -121,6 +122,122 @@ static void flush_buffer(void)
 }
 
 // ============================================================
+// Command-FIFO watch -- added 2026-08-26 ~17:00
+// ============================================================
+//
+// Why: we call gcmInitBody() directly, so the command FIFO keeps whatever
+// wrap callback the firmware installed. PS3DK deliberately replaces that one:
+// <cell/gcm.h>'s cellGcmInit() calls ps3tc_fifo_wrap_install() with the
+// comment "We override the firmware default installed by rsxInit /
+// gcmInitBodyEx because it doesn't advance PUT in the wrap sequence".
+// We never took that path, so we are running on the callback its own
+// toolchain calls broken.
+//
+// Arithmetic that makes this worth a run: the FIFO is CMD_SIZE = 64KB and the
+// only thing we ever push into it is one gcmSetFlip per frame. The furthest
+// the game has ever got is frame 1795 before RPCS3 host-segfaulted; 65536/1795
+// is ~36 bytes per flip, which is exactly the size a flip command sequence
+// should be. So the first FIFO wrap and the crash may well be the same event.
+//
+// This watch is here to decide that by measurement, not by arithmetic. It
+// costs a couple of pointer reads per flip and writes a psdebugS.txt line
+// only (a) for the first few flips, to establish bytes-per-flip, (b) once
+// every 256 flips, (c) every flip once the write pointer is within a few
+// flips of the end, and (d) on the flip after a wrap actually happened.
+// If the wrap is the killer, the last line in psdebugS.txt will be a
+// "danger" line and no "WRAPPED" line will follow it.
+//
+// Gated by PS3TRACE_FIFO (bit 6) so it can be switched off for timing runs,
+// like every other trace family -- see the ps3_debugtrace block in d_main.c.
+extern int ps3_debugtrace;
+#define PS3TRACE_FIFO 64
+
+static u32 ps3gcm_fifo_prev_cur = 0;
+static u32 ps3gcm_fifo_bytes_per_flip = 0;
+static u32 ps3gcm_fifo_wraps = 0;
+static u32 ps3gcm_fifo_first_cur = 0;
+
+// context->begin/end/current are 32-bit PRX pointers (ATTRIBUTE_PRXPTR), so
+// casting them straight to an integer warns about the size change. Go through
+// a full-width pointer, the way flush_buffer() already does.
+static u32 ps3gcm_ptr32(const void *p)
+{
+	return (u32)(uintptr_t)p;
+}
+
+static void ps3gcm_fifo_line(const char *why, u32 cur)
+{
+	gcmControlRegister volatile *ctrl = gcmGetControlRegister();
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugS.txt", "a");
+	u32 begin = ps3gcm_ptr32(context->begin);
+	u32 end = ps3gcm_ptr32(context->end);
+
+	if (!f)
+		return;
+
+	fprintf(f, "[FIFO f%-6u] %-14s begin=%08x end=%08x cur=%08x used=%6u free=%6u B/flip=%u put=%08x get=%08x wraps=%u\n",
+		(unsigned)frame_count, why, (unsigned)begin, (unsigned)end, (unsigned)cur,
+		(unsigned)(cur - begin), (unsigned)(end > cur ? end - cur : 0),
+		(unsigned)ps3gcm_fifo_bytes_per_flip,
+		(unsigned)ctrl->put, (unsigned)ctrl->get, (unsigned)ps3gcm_fifo_wraps);
+
+	fflush(f);
+	fclose(f);
+}
+
+// stage 0 = before gcmSetFlip, stage 1 = after gcmSetFlip + flush_buffer.
+// Only the danger zone logs both, so that a death inside gcmSetFlip is
+// distinguishable from a death after it.
+static void ps3gcm_fifo_watch(int stage)
+{
+	u32 cur, end, danger;
+
+	if (!(ps3_debugtrace & PS3TRACE_FIFO) || !context)
+		return;
+
+	cur = ps3gcm_ptr32(context->current);
+	end = ps3gcm_ptr32(context->end);
+
+	if (stage == 0)
+	{
+		if (ps3gcm_fifo_first_cur == 0)
+			ps3gcm_fifo_first_cur = cur;
+		else if (ps3gcm_fifo_wraps == 0 && frame_count > 0 && frame_count <= 16
+			&& cur > ps3gcm_fifo_first_cur)
+			ps3gcm_fifo_bytes_per_flip = (cur - ps3gcm_fifo_first_cur) / frame_count;
+
+		if (ps3gcm_fifo_prev_cur != 0 && cur < ps3gcm_fifo_prev_cur)
+		{
+			ps3gcm_fifo_wraps++;
+			ps3gcm_fifo_line("WRAPPED", cur);
+			ps3gcm_fifo_prev_cur = cur;
+			return;
+		}
+		ps3gcm_fifo_prev_cur = cur;
+	}
+
+	// 16 flips' worth of headroom, clamped: enough warning to see the wrap
+	// coming, short enough that the 903us-per-write cost stays negligible.
+	danger = ps3gcm_fifo_bytes_per_flip * 16;
+	if (danger < 256) danger = 256;
+	if (danger > 4096) danger = 4096;
+
+	if (end > cur && (end - cur) <= danger)
+	{
+		ps3gcm_fifo_line(stage ? "danger/after" : "danger/before", cur);
+		return;
+	}
+
+	if (stage != 0)
+		return;
+
+	if (frame_count < 4)
+		ps3gcm_fifo_line("sample", cur);
+	else if ((frame_count & 255) == 0)
+		ps3gcm_fifo_line("periodic", cur);
+}
+
+// ============================================================
 // PS3GCM_VideoInit
 // ============================================================
 
@@ -143,6 +260,34 @@ void PS3GCM_VideoInit(void)
 		fprintf(stderr, "[SRB2Kart PS3] gcmInitBody failed: 0x%08X\n", (unsigned)ret);
 		return;
 	}
+
+	// 2026-08-26: replace the command-FIFO wrap callback that gcmInitBody
+	// leaves installed.
+	//
+	// PS3DK does this itself for anyone who goes through cellGcmInit()
+	// (<cell/gcm.h>, "We override the firmware default installed by rsxInit /
+	// gcmInitBodyEx because it doesn't advance PUT in the wrap sequence").
+	// We call gcmInitBody directly, so we never got the replacement, and the
+	// FIFO wrap is where this port has been dying:
+	//
+	//   116 bytes per flip, ~28KB per FIFO segment, so a wrap every ~250
+	//   flips -- roughly every four seconds at 60Hz. Instrumenting the wrap
+	//   (PS3TRACE_FIFO) caught two runs of the same build failing at one:
+	//   one froze right after the switch at flip 768 while the RSX carried on
+	//   presenting at 60fps, the other host-segfaulted RPCS3 at flip 1296 with
+	//   40 bytes left in the segment and no line written on the far side.
+	//
+	// It also explains the thing nobody could explain: why only serialisation
+	// placed in D_Display's drawing path kept the game alive. Slowing the CPU
+	// lets the RSX drain the FIFO, so the wrap lands on an already-consumed
+	// buffer instead of racing GET. That makes the sync barriers in D_Display
+	// a symptom-level fix for this, and they should be re-tested once this is
+	// proven (see the ps3_debugtrace block in d_main.c).
+	//
+	// ps3tc_fifo_wrap_callback writes the tail JUMP, publishes PUT at begin,
+	// and then drains until GET has actually followed the jump before letting
+	// us write low FIFO memory again -- which is precisely the race above.
+	ps3tc_fifo_wrap_install(context);
 
 	vram_init();
 
@@ -308,8 +453,17 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 
 void PS3GCM_Flip(void)
 {
+	// 2026-08-26: the two watch calls are the one exception to the "zero
+	// instrumentation here" rule above. They are a handful of loads and
+	// compares in the common case (no syscall, no I/O), and they only touch
+	// the file system in the ~30 flips per 64KB lap where the FIFO is about
+	// to wrap. See the ps3gcm_fifo_watch block for why that window matters.
+	ps3gcm_fifo_watch(0);
+
 	gcmSetFlip(context, fb_index);
 	flush_buffer();
+
+	ps3gcm_fifo_watch(1);
 
 	fb_index ^= 1;
 	frame_count++;
