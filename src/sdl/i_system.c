@@ -2960,14 +2960,77 @@ ticcmd_t *I_BaseTiccmd4(void)
 
 static Uint64 timer_frequency;
 
+#ifdef _PS3
+#include <sys/systime.h>
+
+// SDL's timer backend is unusable on this toolchain, so the game clock is
+// built directly on the LV2 time syscall instead.
+//
+// The chain that breaks: SDL_GetPerformanceCounter() -> SDL_GetTicks() ->
+// gettimeofday() -> PS3DK's runtime/lv2/librt/gettod.c:19, which calls
+// sysGetCurrentTime(ptimeval, ptimezone). That hands the whole struct timeval
+// in as the "seconds" out-pointer and the timezone argument -- NULL for every
+// caller of gettimeofday(&tv, NULL) -- as the "nanoseconds" one, so tv_usec is
+// never written. Every other PSL1GHT fork in the same tree does
+// "tv_sec = sec; tv_usec = nsec / 1000;" instead.
+//
+// Measured under RPCS3 on 2026-08-26: tv_usec came back still holding the
+// 0xDEAD value poisoned into it before the call, unchanged across 20 samples,
+// while SDL_GetPerformanceCounter() (frequency 1000) advanced in jumps of
+// exactly 1000 at each tv_sec rollover. So the SDL counter only moves once a
+// second, and every tic-pacing wait loop built on it blocked until the next
+// whole second -- 883-985ms per intro wipe frame, and 34s of dead time between
+// the end of loading and the title screen.
+//
+// sysGetCurrentTime() itself is healthy: 16.0-16.5ms deltas across 16ms
+// sleeps, 53ns per call. It is composed here into a single microsecond
+// counter rather than carrying sec and nsec as separate fields, which is what
+// underflowed a 64-bit unsigned subtraction in TanakaDOOM-cGcm when nsec drops
+// below its previous value at a second boundary.
+#define PS3_CLOCK_HZ 1000000ULL
+
+// Counts from zero at first use, not from the UNIX epoch. I_UpdateTime()
+// (i_time.c) takes its first delta against oldenterprecise == 0 and then spins
+// "while (tictimer > 1.0/ticratescaled) { entertic += 1; ... }" to catch up.
+// SDL's counter was milliseconds-since-boot, so that first delta was a few
+// seconds and the catch-up loop ran a couple hundred times; an epoch-based
+// counter makes it 1.787e9 seconds and 6.3e10 iterations, which hangs the game
+// between D_SRB2Main and the first SCR_SetMode. Found the hard way, 2026-08-26.
+//
+// The lazy init can be raced by two threads on the very first call, which at
+// worst gives them bases a few microseconds apart; not worth a lock, since
+// every consumer uses differences rather than absolute values.
+static precise_t PS3_NowMicroseconds(void)
+{
+	static u64 base_us = 0;
+	u64 sec = 0, nsec = 0, now;
+
+	sysGetCurrentTime(&sec, &nsec);
+	now = sec * PS3_CLOCK_HZ + nsec / 1000ULL;
+
+	if (base_us == 0)
+		base_us = now;
+
+	return (precise_t)(now - base_us);
+}
+#endif
+
 precise_t I_GetPreciseTime(void)
 {
+#ifdef _PS3
+	return PS3_NowMicroseconds();
+#else
 	return SDL_GetPerformanceCounter();
+#endif
 }
 
 UINT64 I_GetPrecisePrecision(void)
 {
+#ifdef _PS3
+	return PS3_CLOCK_HZ;
+#else
 	return SDL_GetPerformanceFrequency();
+#endif
 }
 
 static UINT32 frame_rate;
@@ -2995,7 +3058,7 @@ static void I_InitFrameTime(const UINT64 now, const UINT32 cap)
 
 double I_GetFrameTime(void)
 {
-	const UINT64 now = SDL_GetPerformanceCounter();
+	const UINT64 now = I_GetPreciseTime();
 	const UINT32 cap = R_GetFramerateCap();
 
 	if (cap != frame_rate)
@@ -3023,78 +3086,27 @@ double I_GetFrameTime(void)
 //
 void I_StartupTimer(void)
 {
-	timer_frequency = SDL_GetPerformanceFrequency();
+	timer_frequency = I_GetPrecisePrecision();
 
 	I_InitFrameTime(0, R_GetFramerateCap());
 	elapsed_frames  = 0.0;
 }
 
-#ifdef _PS3
-#include <sys/systime.h>
-static unsigned int ps3sleep_diag_calls = 0;
-static u64 ps3sleep_now_us(void)
-{
-	u64 sec = 0, nsec = 0;
-	sysGetCurrentTime(&sec, &nsec);
-	return sec * 1000000ULL + nsec / 1000ULL;
-}
-#endif
-
 void I_Sleep(UINT32 ms)
 {
 #ifdef _PS3
-	// SDL_Delay() -> usleep() -> sysUsleep() (LV2 syscall #141) measured at
-	// ~980ms of real wall-clock time per call under RPCS3, regardless of
-	// the requested duration. Switching to a plain busy-spin that re-checks
-	// I_GetPreciseTime() (sysGetCurrentTime(), syscall #145) on every
-	// iteration did NOT fix it -- measured just as ~985ms from the second
-	// call onward (first call was ~1.6ms). That syscall is cheap in
-	// isolation (confirmed elsewhere, sub-millisecond), so the cost here is
-	// from calling it an enormous, unthrottled number of times per real
-	// millisecond in a tight loop -- the aggregate syscall dispatch
-	// overhead under RPCS3 dominates. Fix: only re-check the clock after a
-	// batch of pure CPU work (no syscalls at all), so the syscall is issued
-	// at a bounded rate instead of as fast as the loop can spin.
-	precise_t cur, dest;
-	int diag = (ps3sleep_diag_calls < 40);
-	u64 diag_t0 = 0, diag_t1;
-
-	ps3sleep_diag_calls++;
-	if (diag)
-		diag_t0 = ps3sleep_now_us();
-
+	// Straight to the LV2 timer syscall. The busy-spin this replaces was put
+	// here on the theory that RPCS3's syscall dispatch overhead made sleeping
+	// expensive; that theory was wrong. Measured 2026-08-26 against the PPU
+	// timebase: sysUsleep(1000) -> 1031us, sysUsleep(16000) -> 16034us,
+	// usleep(16000) -> 16042us. The ~980ms figure previously recorded for both
+	// SDL_Delay() and the busy-spin was the broken SDL clock, not the sleep --
+	// SDL_Delay() loops on SDL_GetTicks(), and the spin loop re-checked
+	// I_GetPreciseTime(), so both waited out the current whole second. See
+	// I_GetPreciseTime above.
 	if (ms == 0)
-	{
-		if (diag)
-		{
-			FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugM.txt", "a");
-			if (f) { fprintf(f, "[#%u] I_Sleep(ms=0) early return\n", ps3sleep_diag_calls); fflush(f); fclose(f); }
-		}
 		return;
-	}
-	cur = I_GetPreciseTime();
-	dest = cur + (precise_t)ms * I_GetPrecisePrecision() / 1000;
-	// signed diff: tolerates the precise counter wrapping (see I_SleepDuration above)
-	do
-	{
-		volatile unsigned int spin;
-		for (spin = 0; spin < 20000; spin++)
-			;
-		cur = I_GetPreciseTime();
-	} while ((INT64)(dest - cur) > 0);
-
-	if (diag)
-	{
-		diag_t1 = ps3sleep_now_us();
-		FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugM.txt", "a");
-		if (f)
-		{
-			fprintf(f, "[#%u] I_Sleep(ms=%u) actual=%llu us\n",
-				ps3sleep_diag_calls, (unsigned)ms, (unsigned long long)(diag_t1 - diag_t0));
-			fflush(f);
-			fclose(f);
-		}
-	}
+	sysUsleep((u32)ms * 1000u);
 #else
 	SDL_Delay(ms);
 #endif
@@ -3256,7 +3268,14 @@ death:
 void I_WaitVBL(INT32 count)
 {
 	count = 1;
+#ifdef _PS3
+	// SDL_Delay() waits out the current whole second here (see
+	// I_GetPreciseTime), which is far too blunt for a vblank-ish pause.
+	(void)count;
+	sysUsleep(1000);
+#else
 	SDL_Delay(count);
+#endif
 }
 
 void I_BeginRead(void)

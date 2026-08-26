@@ -270,6 +270,7 @@ void D_ProcessEvents(void)
 gamestate_t wipegamestate = GS_LEVEL;
 
 #ifdef _PS3
+extern int ps3_debugtrace; // defined below, next to the profiler
 static int ps3dispcalls = 0;
 static boolean ps3dtrace = false;
 static void ps3d(const char *msg)
@@ -291,7 +292,7 @@ static void D_Display(void)
 
 #ifdef _PS3
 	ps3dispcalls++;
-	ps3dtrace = (ps3dispcalls <= 3000);
+	ps3dtrace = (ps3_debugtrace && ps3dispcalls <= 3000);
 	ps3d("D0 D_Display entry");
 #endif
 
@@ -708,6 +709,244 @@ static void ps3mloop(int iter, const char *step)
 	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug9.txt", "a");
 	if (f) { fprintf(f, "F%d %s\n", iter, step); fflush(f); fclose(f); }
 }
+
+// ---------------------------------------------------------------------------
+// 2026-08-26 -- PS3 wall-clock profiler. MEASUREMENT ONLY: nothing in here
+// changes how the game paces itself. Two questions to settle before touching
+// any timing code:
+//
+//  1. Which clock sources on this toolchain actually work? gettimeofday() is
+//     suspect: PS3DK's runtime/lv2/librt/gettod.c:19 calls
+//     sysGetCurrentTime(ptimeval, ptimezone) -- i.e. it hands the whole
+//     struct timeval in as the "sec" out-pointer and NULL (the timezone arg)
+//     as the "nsec" out-pointer, so tv_usec is never written. Every fork of
+//     the same tree does "tv_sec = sec; tv_usec = nsec/1000;" instead.
+//     SDL_GetTicks()/SDL_GetPerformanceCounter() sit on top of that, and so
+//     does every tic-pacing wait loop in the game.
+//
+//  2. How much of a frame goes into the per-frame debug file writes left over
+//     from the flip-#555 investigation? There are 8 fopen/fprintf/fflush/
+//     fclose cycles per frame here plus 8 more in I_FinishUpdate, all
+//     appending to files on the emulated HDD.
+//
+// Everything is timed on the PPU timebase (mftb), which is independent of
+// both suspects.
+// ---------------------------------------------------------------------------
+#include <sys/systime.h>   // sysGetCurrentTime, sysGetTimebaseFrequency, sysUsleep
+#include <sys/time.h>      // gettimeofday
+#include <unistd.h>        // usleep
+
+// Same idiom as the toolchain's __gettime() macro in
+// $PS3DEV/ps3dk/ppu/include/sys/ppu-asm.h (mftb, retried while it reads 0).
+// Written out here rather than including that header, which would also drag
+// its bswap static-inline block into this translation unit.
+static inline u64 ps3prof_tb(void)
+{
+	unsigned long long tb;
+	__asm__ __volatile__(
+		"1:\n\t"
+		"mftb  %[t]\n\t"
+		"cmpwi 7,%[t],0\n\t"
+		"beq-  7,1b"
+		: [t] "=r"(tb) : : "cr7");
+	return (u64)tb;
+}
+
+static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at probe time
+#define PS3PROF_TB2US(d) (((u64)(d)) * 1000000ULL / ps3prof_tbfreq)
+
+#define PS3PROF_FRAMES  500  // main-loop iterations recorded before the dump
+#define PS3PROF_WARMUP  200  // frames before this are excluded from the averages
+#define PS3PROF_BLOCK   100  // after warmup, traces alternate on/off per block
+
+// The debug writes are A/B'd in interleaved blocks rather than at a single
+// split point: the intro plays out inside the first few hundred main-loop
+// iterations and is far more expensive per frame than the title screen, so a
+// single "on then off" split would price that transition instead of the
+// writes.
+// Master switch for the per-frame debug file writes left over from the
+// flip-#555 investigation, read here and by i_video.c, d_clisrv.c, d_net.c and
+// g_game.c. Measured 2026-08-26: one fopen/fprintf/fflush/fclose cycle on the
+// emulated HDD costs 903us, and the ~16 of them per frame cost 9.7ms -- 48fps
+// with them on versus 91fps with them off, over 400 title-screen frames each.
+// Off by default; set to 1 to bring the whole trace set back.
+int ps3_debugtrace = 0;
+
+static unsigned int ps3prof_total[PS3PROF_FRAMES];
+static unsigned int ps3prof_tics[PS3PROF_FRAMES];
+static unsigned int ps3prof_disp[PS3PROF_FRAMES];
+static unsigned int ps3prof_slp[PS3PROF_FRAMES];
+static unsigned char ps3prof_on[PS3PROF_FRAMES];
+static int ps3prof_dumped = 0;
+
+static void PS3_ClockProbe(void)
+{
+	FILE *f;
+	int i;
+	u64 t0, t1;
+	volatile u64 sink = 0;
+
+	ps3prof_tbfreq = sysGetTimebaseFrequency();
+	if (ps3prof_tbfreq == 0)
+		ps3prof_tbfreq = 79800000ULL;
+
+	f = fopen("/dev_hdd0/game/SRB2KART/psdebugN.txt", "a");
+	if (!f)
+		return;
+
+	fprintf(f, "=== PS3 CLOCK PROBE (build 2026-08-26) ===\n");
+	fprintf(f, "sysGetTimebaseFrequency() = %llu Hz\n", (unsigned long long)ps3prof_tbfreq);
+	fprintf(f, "I_GetPrecisePrecision()   = %llu\n", (unsigned long long)I_GetPrecisePrecision());
+
+	// -- phase 1: do the clocks move at all, and with what granularity?
+	// tv_usec is poisoned before each gettimeofday() call: if 0xDEAD comes
+	// back unchanged, the toolchain wrapper never wrote it.
+	fprintf(f, "-- phase 1: 20 samples, sysUsleep(16000) between --\n");
+	for (i = 0; i < 20; i++)
+	{
+		struct timeval tv;
+		u64 sec = 0, nsec = 0, tb;
+		precise_t sdl;
+
+		tb = ps3prof_tb();
+		sysGetCurrentTime(&sec, &nsec);
+		tv.tv_sec = 0;
+		tv.tv_usec = 0xDEAD;
+		gettimeofday(&tv, NULL);
+		sdl = I_GetPreciseTime();
+
+		fprintf(f, "[%02d] tb=%llu sysCur=%llu.%09llu gtod=%lld.%06lld sdlPerf=%llu\n",
+			i, (unsigned long long)tb,
+			(unsigned long long)sec, (unsigned long long)nsec,
+			(long long)tv.tv_sec, (long long)tv.tv_usec,
+			(unsigned long long)sdl);
+
+		sysUsleep(16000);
+	}
+
+	// -- phase 2: what does a sleep actually cost, measured on the timebase?
+	fprintf(f, "-- phase 2: sleep accuracy on the PPU timebase --\n");
+	t0 = ps3prof_tb(); sysUsleep(1000);  t1 = ps3prof_tb();
+	fprintf(f, "sysUsleep(1000)  -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+	t0 = ps3prof_tb(); sysUsleep(1000);  t1 = ps3prof_tb();
+	fprintf(f, "sysUsleep(1000)  -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+	t0 = ps3prof_tb(); sysUsleep(16000); t1 = ps3prof_tb();
+	fprintf(f, "sysUsleep(16000) -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+	t0 = ps3prof_tb(); usleep(16000);    t1 = ps3prof_tb();
+	fprintf(f, "usleep(16000)    -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+	t0 = ps3prof_tb(); I_Sleep(1);       t1 = ps3prof_tb();
+	fprintf(f, "I_Sleep(1)       -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+	t0 = ps3prof_tb(); I_Sleep(1);       t1 = ps3prof_tb();
+	fprintf(f, "I_Sleep(1)       -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+
+	// -- phase 3: unit cost of the things called in the inner loops
+	fprintf(f, "-- phase 3: unit costs --\n");
+	t0 = ps3prof_tb();
+	for (i = 0; i < 1000; i++)
+		sink += ps3prof_tb();
+	t1 = ps3prof_tb();
+	fprintf(f, "1000x mftb              -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+
+	t0 = ps3prof_tb();
+	for (i = 0; i < 1000; i++)
+	{
+		u64 s = 0, n = 0;
+		sysGetCurrentTime(&s, &n);
+		sink += s + n;
+	}
+	t1 = ps3prof_tb();
+	fprintf(f, "1000x sysGetCurrentTime -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+
+	t0 = ps3prof_tb();
+	for (i = 0; i < 1000; i++)
+		sink += I_GetPreciseTime();
+	t1 = ps3prof_tb();
+	fprintf(f, "1000x I_GetPreciseTime  -> %llu us\n", (unsigned long long)PS3PROF_TB2US(t1 - t0));
+
+	t0 = ps3prof_tb();
+	for (i = 0; i < 20; i++)
+		ps3mloop(0, "clockprobe write-cost sample");
+	t1 = ps3prof_tb();
+	fprintf(f, "20x debug trace write   -> %llu us total, %llu us each\n",
+		(unsigned long long)PS3PROF_TB2US(t1 - t0),
+		(unsigned long long)(PS3PROF_TB2US(t1 - t0) / 20));
+
+	fprintf(f, "=== end of clock probe (sink=%llu) ===\n", (unsigned long long)sink);
+	fflush(f);
+	fclose(f);
+}
+
+// Averages every recorded frame in [lo,hi) whose trace flag matches "want".
+static void PS3_ProfMean(FILE *f, const char *label, int lo, int hi, int want)
+{
+	u64 st = 0, sk = 0, sd = 0, ss = 0;
+	unsigned long long avg, fps_x100;
+	int i, n = 0;
+
+	for (i = lo; i < hi && i < PS3PROF_FRAMES; i++)
+	{
+		if (ps3prof_on[i] != (unsigned char)want)
+			continue;
+		st += ps3prof_total[i];
+		sk += ps3prof_tics[i];
+		sd += ps3prof_disp[i];
+		ss += ps3prof_slp[i];
+		n++;
+	}
+	if (n == 0)
+		return;
+
+	avg = (unsigned long long)(st / n);
+	fps_x100 = avg ? (100000000ULL / avg) : 0;
+	fprintf(f, "%-18s n=%4d  total=%8llu us (%llu.%02llu fps)  TryRunTics=%8llu  D_Display=%8llu  sleepblock=%8llu\n",
+		label, n, avg, fps_x100 / 100, fps_x100 % 100,
+		(unsigned long long)(sk / n), (unsigned long long)(sd / n),
+		(unsigned long long)(ss / n));
+}
+
+static void PS3_ProfDump(void)
+{
+	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebugO.txt", "a");
+	int i;
+
+	if (!f)
+		return;
+
+	fprintf(f, "=== PS3 FRAME PROFILE (build 2026-08-26), tbfreq=%llu ===\n",
+		(unsigned long long)ps3prof_tbfreq);
+	fprintf(f, "columns: iteration, trace state, total us, TryRunTics us, D_Display us, sleepblock us\n");
+	for (i = 0; i < PS3PROF_FRAMES; i++)
+		fprintf(f, "F%04d %s %9u %9u %9u %9u\n", i + 1,
+			ps3prof_on[i] ? "trace-ON " : "trace-OFF",
+			ps3prof_total[i], ps3prof_tics[i], ps3prof_disp[i], ps3prof_slp[i]);
+	fprintf(f, "--- averages, warmup frames 1-%d excluded ---\n", PS3PROF_WARMUP);
+	PS3_ProfMean(f, "debug traces ON",  PS3PROF_WARMUP, PS3PROF_FRAMES, 1);
+	PS3_ProfMean(f, "debug traces OFF", PS3PROF_WARMUP, PS3PROF_FRAMES, 0);
+	fflush(f);
+	fclose(f);
+}
+
+static void PS3_ProfRecord(int iter, unsigned int total, unsigned int tics,
+	unsigned int disp, unsigned int slp)
+{
+	int i;
+
+	if (iter < 1 || iter > PS3PROF_FRAMES)
+		return;
+
+	i = iter - 1;
+	ps3prof_total[i] = total;
+	ps3prof_tics[i] = tics;
+	ps3prof_disp[i] = disp;
+	ps3prof_slp[i] = slp;
+	ps3prof_on[i] = (unsigned char)(ps3_debugtrace ? 1 : 0);
+
+	if (iter == PS3PROF_FRAMES && !ps3prof_dumped)
+	{
+		ps3prof_dumped = 1;
+		PS3_ProfDump();
+	}
+}
 #else
 #define ps3m(msg)
 #endif
@@ -783,9 +1022,15 @@ void D_SRB2Loop(void)
 #ifdef _PS3
 		static int ps3loopiter = 0;
 		boolean ps3trace;
+		u64 ps3p_iter0, ps3p_a = 0, ps3p_b = 0;
+		unsigned int ps3p_tics = 0, ps3p_disp = 0, ps3p_slp = 0;
 		ps3loopiter++;
-		ps3trace = (ps3loopiter <= 3000);
-		if (ps3loopiter == 1) ps3m("L11 first main loop iteration entered");
+		ps3p_iter0 = ps3prof_tb();
+		// The alternating on/off A/B that used to live here has served its
+		// purpose (9.7ms per frame, 48fps vs 91fps) -- ps3_debugtrace now just
+		// stays at whatever it is initialised to, off by default.
+		ps3trace = (ps3_debugtrace && ps3loopiter <= 3000);
+		if (ps3loopiter == 1) { ps3m("L11 first main loop iteration entered"); PS3_ClockProbe(); }
 		if (ps3trace) ps3mloop(ps3loopiter, "top of iteration");
 #endif
 
@@ -840,8 +1085,13 @@ void D_SRB2Loop(void)
 				realtics = 1;
 
 			// process tics (but maybe not if realtic == 0)
+#ifdef _PS3
+			ps3p_a = ps3prof_tb();
+#endif
 			TryRunTics(realtics);
 #ifdef _PS3
+			ps3p_b = ps3prof_tb();
+			ps3p_tics = (unsigned int)PS3PROF_TB2US(ps3p_b - ps3p_a);
 			if (ps3trace) ps3mloop(ps3loopiter, "after TryRunTics");
 #endif
 
@@ -887,9 +1137,12 @@ void D_SRB2Loop(void)
 		{
 #ifdef _PS3
 			if (ps3trace) ps3mloop(ps3loopiter, "before D_Display");
+			ps3p_a = ps3prof_tb();
 #endif
 			D_Display();
 #ifdef _PS3
+			ps3p_b = ps3prof_tb();
+			ps3p_disp = (unsigned int)PS3PROF_TB2US(ps3p_b - ps3p_a);
 			if (ps3trace) ps3mloop(ps3loopiter, "after D_Display");
 #endif
 		}
@@ -928,6 +1181,9 @@ void D_SRB2Loop(void)
 #endif
 
 		// Fully completed frame made.
+#ifdef _PS3
+		ps3p_a = ps3prof_tb();
+#endif
 		finishprecise = I_GetPreciseTime();
 		if (!singletics)
 		{
@@ -941,12 +1197,19 @@ void D_SRB2Loop(void)
 				I_SleepDuration(capbudget - (finishprecise - enterprecise));
 			}
 		}
+#ifdef _PS3
+		ps3p_b = ps3prof_tb();
+		ps3p_slp = (unsigned int)PS3PROF_TB2US(ps3p_b - ps3p_a);
+#endif
 		// Capture the time once more to get the real delta time.
 		finishprecise = I_GetPreciseTime();
 		deltasecs = (double)((INT64)(finishprecise - enterprecise)) / I_GetPrecisePrecision();
 		deltatics = deltasecs * NEWTICRATE;
 #ifdef _PS3
 		if (ps3trace) ps3mloop(ps3loopiter, "end of iteration");
+		PS3_ProfRecord(ps3loopiter,
+			(unsigned int)PS3PROF_TB2US(ps3prof_tb() - ps3p_iter0),
+			ps3p_tics, ps3p_disp, ps3p_slp);
 #endif
 	}
 }

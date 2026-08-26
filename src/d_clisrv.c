@@ -3916,8 +3916,11 @@ static void Joinable_OnChange(void)
 // called one time at init
 #ifdef _PS3
 static int ps3csseq = 0;
+extern int ps3_debugtrace; // d_main.c
 static void ps3cs(const char *msg) {
-	FILE *f = fopen("/dev_hdd0/game/SRB2KART/psdebug8.txt", "a");
+	FILE *f;
+	if (!ps3_debugtrace) return;
+	f = fopen("/dev_hdd0/game/SRB2KART/psdebug8.txt", "a");
 	ps3csseq++;
 	if (f) { fprintf(f, "[#%d] %s\n", ps3csseq, msg); fflush(f); fclose(f); }
 }

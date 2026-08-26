@@ -1418,6 +1418,7 @@ static SDL_Rect src_rect = { 0, 0, 0, 0 };
 #ifdef _PS3
 static int ps3fucalls = 0;
 static boolean ps3futrace = false;
+extern int ps3_debugtrace; // d_main.c -- master switch for the per-frame debug writes
 static void ps3fu(const char *msg)
 {
 	FILE *f;
@@ -1460,7 +1461,9 @@ void I_FinishUpdate(void)
 {
 #ifdef _PS3
 	ps3fucalls++;
-	ps3futrace = (ps3fucalls >= 195 && ps3fucalls <= 3000); // widened further - hang now happens near disp#498, fu# offset ahead of disp# is unknown/variable
+	// 2026-08-26: lower bound (was >= 195, from the flip-#555 hunt) dropped so
+	// the profiler's trace-ON window is uniformly traced from frame 1.
+	ps3futrace = (ps3_debugtrace && ps3fucalls <= 3000);
 	ps3fu("IFU0 entry");
 	ps3rsxnudge();
 #endif

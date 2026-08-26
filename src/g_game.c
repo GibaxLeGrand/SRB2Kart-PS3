@@ -2400,10 +2400,12 @@ void G_ResetViews(void)
 // Make ticcmd_ts for the players.
 //
 #ifdef _PS3
+extern int ps3_debugtrace; // d_main.c
 static void ps3gt2(const char *msg)
 {
 	static int ps3gt2seq = 0;
 	FILE *f;
+	if (!ps3_debugtrace) return;
 	ps3gt2seq++;
 	f = fopen("/dev_hdd0/game/SRB2KART/psdebugI.txt", "a");
 	if (f) { fprintf(f, "[#%d] %s\n", ps3gt2seq, msg); fflush(f); fclose(f); }
