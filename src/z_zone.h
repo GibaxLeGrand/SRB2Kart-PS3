@@ -122,4 +122,10 @@ char *Z_StrDup(const char *in);
 #define Z_Unlock(p) (void)p
 #endif
 
+#ifdef _PS3
+// 2026-08-26 -- one-pass heap validation + per-tag accounting, reported on the
+// psdebugS.txt timeline instead of aborting. See the definition in z_zone.c.
+void PS3_HeapProbe(const char *what);
+#endif
+
 #endif

@@ -618,6 +618,106 @@ size_t Z_TagUsage(INT32 tagnum)
 	return Z_TagsUsage(tagnum, tagnum);
 }
 
+#ifdef _PS3
+#include <sys/memory.h> // sys_memory_get_user_memory_size, syscall 352
+
+/** Heap probe for the level-load crash hunt, 2026-08-26.
+  *
+  * cdb caught RPCS3 dying on a host NX fault with RIP = 0 -- guest code jumping
+  * through a null code pointer -- and every reproduction needs the level path.
+  * The stack is not the cause (peak 9312 bytes of a 1MB stack) and states[] is
+  * intact in the linked binary, so a corrupted pointer living in the heap is
+  * what is left. P_SetupLevel is where the heap gets churned hardest: it frees
+  * every PU_LEVEL block, reinitialises the thinker and action-cache lists, then
+  * loads a whole map on top.
+  *
+  * Same checks as Z_CheckHeap, but it walks once instead of five times, folds
+  * the per-tag accounting into the same pass, and above all it REPORTS instead
+  * of calling I_Error -- so a run carries on to the next probe and we learn
+  * where the heap first goes bad rather than only that it did.
+  *
+  * The iteration guard is there because a broken forward link would otherwise
+  * spin in here forever.
+  */
+void PS3_HeapProbe(const char *what)
+{
+	memblock_t *rover;
+	UINT32 blocks = 0, bad = 0, firstbadnum = 0;
+	INT32 firstbadtag = 0;
+	const char *firstbad = NULL;
+	size_t bytes = 0, lvl = 0, cache = 0, statics = 0;
+	sys_memory_info_t mem;
+	char line[192];
+
+	// The lv2 figure is the one that matters, not the zone's own accounting.
+	// SRB2 reports "System memory: 48MB" at startup, but the probe measured a
+	// 143MB heap before a level is even loaded, 135MB of it PU_CACHE -- which
+	// Z_Unlock never releases on this platform (z_zone.h:119-122 makes it a
+	// no-op outside _NDS, upstream, "TODO: need a lock reference system").
+	// A PS3 has 256MB of main memory in total.
+	mem.total_user_memory = 0;
+	mem.available_user_memory = 0;
+	sys_memory_get_user_memory_size(&mem);
+
+	for (rover = head.next; rover != &head && blocks < 1000000; rover = rover->next)
+	{
+		memhdr_t *hdr = rover->hdr;
+		const char *why = NULL;
+
+		blocks++;
+		bytes += rover->size + sizeof *rover;
+
+		if (rover->tag >= PU_LEVEL && rover->tag < PU_PURGELEVEL)
+			lvl += rover->size;
+		else if (rover->tag == PU_CACHE)
+			cache += rover->size;
+		else if (rover->tag < PU_LEVEL)
+			statics += rover->size;
+
+		if (hdr == NULL)
+			why = "hdr NULL";
+		else if (hdr->id != ZONEID)
+			why = "ZONEID";
+		else if (hdr->block != rover)
+			why = "hdr->block";
+		else if (rover->next->prev != rover)
+			why = "backlink";
+		else if (rover->prev->next != rover)
+			why = "fwdlink";
+		else if (rover->user != NULL
+			&& *(rover->user) != (void *)((UINT8 *)hdr + sizeof *hdr))
+			why = "user ptr";
+
+		if (why != NULL)
+		{
+			bad++;
+			if (firstbad == NULL)
+			{
+				firstbad = why;
+				firstbadnum = blocks;
+				firstbadtag = rover->tag;
+			}
+		}
+	}
+
+	if (bad != 0)
+		snprintf(line, sizeof line,
+			"HEAP %-26s blocks=%u lv2free=%uK *** %u CORRUPT, first #%u tag=%d (%s) ***",
+			what, (unsigned)blocks,
+			(unsigned)(mem.available_user_memory >> 10), (unsigned)bad,
+			(unsigned)firstbadnum, (int)firstbadtag, firstbad);
+	else
+		snprintf(line, sizeof line,
+			"HEAP %-26s blocks=%u zone=%uK lvl=%uK cache=%uK stat=%uK | lv2 free=%uK of %uK",
+			what, (unsigned)blocks, (unsigned)(bytes >> 10),
+			(unsigned)(lvl >> 10), (unsigned)(cache >> 10), (unsigned)(statics >> 10),
+			(unsigned)(mem.available_user_memory >> 10),
+			(unsigned)(mem.total_user_memory >> 10));
+
+	PS3_Mark(line);
+}
+#endif
+
 void Command_Memfree_f(void)
 {
 	UINT32 freebytes, totalbytes;

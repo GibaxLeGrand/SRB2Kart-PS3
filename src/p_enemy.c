@@ -13,6 +13,7 @@
 ///        Action Pointer Functions that are associated with states/frames
 
 #include "doomdef.h"
+#include "d_main.h" // PS3_BadAction
 #include "g_game.h"
 #include "p_local.h"
 #include "r_main.h"
@@ -6878,6 +6879,8 @@ void A_GuardChase(mobj_t *actor)
 	&& actor->tracer->state->action.acp1)
 	{
 		var1 = actor->tracer->state->var1, var2 = actor->tracer->state->var2;
+		if (!PS3_BadAction("A_.../tracer", (INT32)(actor->tracer->state - states),
+			(void *)actor->tracer->state->action.acp1))
 		actor->tracer->state->action.acp1(actor->tracer);
 	}
 }
@@ -7016,6 +7019,8 @@ void A_Boss1Spikeballs(mobj_t *actor)
 
 	S_StartSound(ball, ball->info->seesound);
 	var1 = ball->state->var1, var2 = ball->state->var2;
+	if (!PS3_BadAction("A_.../ball", (INT32)(ball->state - states),
+		(void *)ball->state->action.acp1))
 	ball->state->action.acp1(ball);
 }
 
@@ -8061,6 +8066,7 @@ void A_DualAction(mobj_t *actor)
 #endif
 
 	CONS_Debug(DBG_GAMELOGIC, "A_DualAction: Calling First Action (state %d)...\n", locvar1);
+	if (!PS3_BadAction("A_DualAction first", locvar1, (void *)states[locvar1].action.acp1))
 	states[locvar1].action.acp1(actor);
 
 	var1 = states[locvar2].var1;
@@ -8070,6 +8076,7 @@ void A_DualAction(mobj_t *actor)
 #endif
 
 	CONS_Debug(DBG_GAMELOGIC, "A_DualAction: Calling Second Action (state %d)...\n", locvar2);
+	if (!PS3_BadAction("A_DualAction second", locvar2, (void *)states[locvar2].action.acp1))
 	states[locvar2].action.acp1(actor);
 }
 
@@ -8156,6 +8163,7 @@ void A_RemoteAction(mobj_t *actor)
 
 		CONS_Debug(DBG_GAMELOGIC, "A_RemoteAction: Calling action on %p\n"
 				"var1 is %d\nvar2 is %d\n", actor->target, var1, var2);
+		if (!PS3_BadAction("A_RemoteAction", locvar2, (void *)states[locvar2].action.acp1))
 		states[locvar2].action.acp1(actor->target);
 	}
 
@@ -10220,6 +10228,7 @@ void A_CusValAction(mobj_t *actor)
 #ifdef HAVE_BLUA
 	astate = &states[locvar1];
 #endif
+	if (!PS3_BadAction("A_CusValAction", locvar1, (void *)states[locvar1].action.acp1))
 	states[locvar1].action.acp1(actor);
 }
 

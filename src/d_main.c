@@ -1159,6 +1159,60 @@ static void PS3_StateLine(u64 now_us, unsigned int frame, unsigned int frame_us,
 static unsigned int ps3state_frame = 0;
 static unsigned int ps3state_frame_us = 0;
 
+// ---------------------------------------------------------------------------
+// 2026-08-26 -- indirect action-call guard.
+//
+// The crash signature is a host NX fault at RIP = 0 on the PPU thread: guest
+// code jumping through a bad code pointer. Everything else is now excluded --
+// the stack peaks at 9312 bytes of 1MB, the zone heap validates clean at every
+// phase of P_SetupLevel, and states[] is intact in the linked binary.
+//
+// So look at the places that actually jump through a pointer without checking
+// it. SRB2 has eight, all on the level/gameplay path, and four of them index
+// states[] with a number that comes from state data rather than from code
+// (A_DualAction, A_RemoteAction and friends read it out of var1/var2).
+//
+// This reports the offending target and skips the call instead of taking it.
+// Three possible outcomes, all of them useful: lines appear and name the site;
+// the crash disappears, which proves it; or nothing appears and all eight
+// sites are cleared.
+//
+// The image is at 0x10230 (.text) through 0x39c704 (end of .opd), so a real
+// function pointer is 4-byte aligned and inside [0x10000, 0x3a0000).
+#define PS3_CODE_LO 0x00010000u
+#define PS3_CODE_HI 0x003a0000u
+
+int PS3_BadAction(const char *where, INT32 statenum, void *fn)
+{
+	static int reported = 0;
+	u32 a = (u32)(uintptr_t)fn;
+	const char *why = NULL;
+	char line[192];
+
+	if (statenum < 0 || statenum >= NUMSTATES)
+		why = "state number out of range";
+	else if (fn == NULL)
+		why = "NULL action";
+	else if ((a & 3u) != 0u)
+		why = "misaligned action pointer";
+	else if (a < PS3_CODE_LO || a >= PS3_CODE_HI)
+		why = "action pointer outside the image";
+
+	if (why == NULL)
+		return 0;
+
+	if (reported < 24)
+	{
+		reported++;
+		snprintf(line, sizeof line, "*** BAD ACTION CALL *** %s: state=%d fn=%08x -- %s (skipped)",
+			where, (int)statenum, (unsigned)a, why);
+		PS3_Mark(line);
+		fprintf(stderr, "[PS3] %s\n", line);
+	}
+
+	return 1;
+}
+
 void PS3_Mark(const char *what)
 {
 	u64 now_us;
@@ -1245,6 +1299,11 @@ static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
 		snprintf(line, sizeof line, "heartbeat  %s%s",
 			PS3_GameStateName(gamestate), demo.playback ? " (demo)" : "");
 		PS3_StateLine(now_us, frame, frame_us, line);
+
+		// Once a second, validate the whole zone heap. GS_LEVEL is one of the
+		// three places RPCS3 has died, so the level-load probes in
+		// P_SetupLevel are not enough on their own.
+		PS3_HeapProbe("heartbeat");
 	}
 }
 

@@ -25,6 +25,7 @@
 #include "r_splats.h"
 #include "s_sound.h"
 #include "z_zone.h"
+#include "d_main.h" // PS3_BadAction
 #include "m_random.h"
 #include "m_cheat.h"
 #include "m_misc.h"
@@ -66,7 +67,9 @@ void P_RunCachedActions(void)
 #ifdef HAVE_BLUA
 		astate = &states[ac->statenum];
 #endif
-		if (ac->mobj && !P_MobjWasRemoved(ac->mobj)) // just in case...
+		if (ac->mobj && !P_MobjWasRemoved(ac->mobj) // just in case...
+			&& !PS3_BadAction("P_RunCachedActions", ac->statenum,
+				(void *)states[ac->statenum].action.acp1))
 			states[ac->statenum].action.acp1(ac->mobj);
 		next = ac->next;
 		Z_Free(ac);
@@ -8996,6 +8999,8 @@ void P_MobjThinker(mobj_t *mobj)
 		{
 			var1 = mobj->state->var1;
 			var2 = mobj->state->var2;
+			if (!PS3_BadAction("P_MobjThinker/A_Boss1Laser",
+				(INT32)(mobj->state - states), (void *)mobj->state->action.acp1))
 			mobj->state->action.acp1(mobj);
 		}
 		else if (leveltime & 1) // Fire mode
@@ -9682,6 +9687,8 @@ mobj_t *P_SpawnMobj(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type)
 				ball->threshold = ball->radius + mobj->radius + FixedMul(ball->info->painchance, ball->scale);
 
 				var1 = ball->state->var1, var2 = ball->state->var2;
+				if (!PS3_BadAction("P_SpawnMobj/ball", (INT32)(ball->state - states),
+					(void *)ball->state->action.acp1))
 				ball->state->action.acp1(ball);
 			}
 			break;

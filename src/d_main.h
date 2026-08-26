@@ -59,6 +59,13 @@ void PS3_Mark(const char *what);
 // Called from the deepest recursions (R_RenderBSPNode, P_RunThinkers); the
 // result is printed on every psdebugS.txt line. Defined in d_main.c.
 void PS3_StackTouch(void);
+
+// 2026-08-26 -- returns non-zero when an indirect action call is about to jump
+// somewhere invalid, after reporting it. Defined in d_main.c.
+int PS3_BadAction(const char *where, INT32 statenum, void *fn);
+#else
+// Off-PS3 the guards at the indirect action-call sites compile away entirely.
+#define PS3_BadAction(where, statenum, fn) 0
 #endif
 
 #endif //__D_MAIN__

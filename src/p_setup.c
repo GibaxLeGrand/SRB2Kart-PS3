@@ -1004,8 +1004,28 @@ static void P_LoadThings(void)
 
 	mt = mapthings;
 	numhuntemeralds = 0;
+#ifdef _PS3
+	// 2026-08-26 -- two consecutive runs died between the H8 and H9 heap
+	// probes, so the failure is inside this loop or P_ResetDynamicSlopes just
+	// above it. One line every 64 things narrows it to a 64-thing window at a
+	// cost of a handful of writes; the last line written names the survivor.
+	{
+		char ps3l[96];
+		snprintf(ps3l, sizeof ps3l, "THINGS start, nummapthings=%u", (unsigned)nummapthings);
+		PS3_Mark(ps3l);
+	}
+#endif
 	for (i = 0; i < nummapthings; i++, mt++)
 	{
+#ifdef _PS3
+		if ((i & 63) == 0)
+		{
+			char ps3l[96];
+			snprintf(ps3l, sizeof ps3l, "THINGS i=%u/%u type=%d",
+				(unsigned)i, (unsigned)nummapthings, (int)mt->type);
+			PS3_Mark(ps3l);
+		}
+#endif
 		sector_t *mtsector = R_PointInSubsector(mt->x << FRACBITS, mt->y << FRACBITS)->sector;
 
 		// Z for objects
@@ -1024,6 +1044,9 @@ static void P_LoadThings(void)
 		mt->mobj = NULL;
 		P_SpawnMapThing(mt);
 	}
+#ifdef _PS3
+	PS3_Mark("THINGS loop done");
+#endif
 
 	// random emeralds for hunt
 	if (numhuntemeralds)
@@ -2820,6 +2843,9 @@ boolean P_SetupLevel(boolean skipprecip)
 
 	levelloading = true;
 
+#ifdef _PS3
+	PS3_HeapProbe("H1 P_SetupLevel entry");
+#endif
 	// This is needed. Don't touch.
 	maptol = mapheaderinfo[gamemap-1]->typeoflevel;
 
@@ -2934,9 +2960,15 @@ boolean P_SetupLevel(boolean skipprecip)
 		ranspecialwipe = 1;
 	}
 
+#ifdef _PS3
+	PS3_HeapProbe("H2 before S_ClearSfx");
+#endif
 	// Make sure all sounds are stopped before Z_FreeTags.
 	S_StopSounds();
 	S_ClearSfx();
+#ifdef _PS3
+	PS3_HeapProbe("H3 after S_ClearSfx");
+#endif
 
 	// As oddly named as this is, this handles music only.
 	// We should be fine starting it here.
@@ -2991,10 +3023,16 @@ boolean P_SetupLevel(boolean skipprecip)
 		Z_Free(ss->attachedsolid);
 	}
 
+#ifdef _PS3
+	PS3_HeapProbe("H4 before Z_FreeTags(PU_LEVEL)");
+#endif
 	// Clear pointers that would be left dangling by the purge
 	R_FlushTranslationColormapCache();
 
 	Z_FreeTags(PU_LEVEL, PU_PURGELEVEL - 1);
+#ifdef _PS3
+	PS3_HeapProbe("H5 after Z_FreeTags(PU_LEVEL)");
+#endif
 
 #if defined (WALLSPLATS) || defined (FLOORSPLATS)
 	// clear the splats from previous level
@@ -3006,6 +3044,9 @@ boolean P_SetupLevel(boolean skipprecip)
 	P_InitThinkers();
 	R_InitMobjInterpolators();
 	P_InitCachedActions();
+#ifdef _PS3
+	PS3_HeapProbe("H6 after thinker/action init");
+#endif
 
 	/// \note for not spawning precipitation, etc. when loading netgame snapshots
 	if (skipprecip)
@@ -3095,6 +3136,9 @@ boolean P_SetupLevel(boolean skipprecip)
 	}
 	else
 	{
+#ifdef _PS3
+	PS3_HeapProbe("H7 before map lumps");
+#endif
 		// Important: take care of the ordering of the next functions.
 		loadedbm = P_LoadBlockMap(lastloadedmaplumpnum + ML_BLOCKMAP);
 		P_LoadVertexes(lastloadedmaplumpnum + ML_VERTEXES);
@@ -3124,9 +3168,18 @@ boolean P_SetupLevel(boolean skipprecip)
 		P_PrepareThings(lastloadedmaplumpnum + ML_THINGS);
 	}
 
+#ifdef _PS3
+	PS3_HeapProbe("H8 after map lumps");
+#endif
 	P_ResetDynamicSlopes();
+#ifdef _PS3
+	PS3_HeapProbe("H8b after P_ResetDynamicSlopes");
+#endif
 
 	P_LoadThings();
+#ifdef _PS3
+	PS3_HeapProbe("H9 after P_LoadThings");
+#endif
 
 	P_SpawnSecretItems(loademblems);
 
@@ -3381,7 +3434,13 @@ boolean P_SetupLevel(boolean skipprecip)
 
 	levelloading = false;
 
+#ifdef _PS3
+	PS3_HeapProbe("H10 before P_RunCachedActions");
+#endif
 	P_RunCachedActions();
+#ifdef _PS3
+	PS3_HeapProbe("H11 after P_RunCachedActions");
+#endif
 
 	if (P_CanSave())
 		G_SaveGame((UINT32)cursaveslot);
