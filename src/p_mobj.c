@@ -10985,6 +10985,28 @@ void P_MovePlayerToSpawn(INT32 playernum, mapthing_t *mthing)
 				z += ((mthing->options >> ZSHIFT) << FRACBITS);
 			if (p->kartstuff[k_respawn])
 				z += 128*mapobjectscale;
+
+#ifdef _PS3
+			// 2026-08-27, TEMPORARY EXPERIMENT. Alex's theory: the demo runs
+			// that die during level load do so because the player spawns a
+			// little above the floor, falls, and that first vertical movement
+			// trips the fault. Report the drop, and optionally remove it, so
+			// the theory can be answered by A/B rather than argued about.
+			// Set PS3_NO_SPAWN_FALL to 0 to restore stock behaviour.
+#define PS3_NO_SPAWN_FALL 1
+			{
+				char ps3l[128];
+
+				snprintf(ps3l, sizeof ps3l, "SPAWN joueur z=%d floor=%d chute=%d%s",
+					(int)(z >> FRACBITS), (int)(floor >> FRACBITS),
+					(int)((z - floor) >> FRACBITS),
+					PS3_NO_SPAWN_FALL ? " (epingle au sol)" : "");
+				PS3_Mark(ps3l);
+			}
+#if PS3_NO_SPAWN_FALL
+			z = floor;
+#endif
+#endif
 		}
 
 		if (mthing->options & MTF_OBJECTFLIP) // flip the player!

@@ -275,6 +275,23 @@ extern int ps3_norender3d; // defined below; bisection knob, see R_RenderPlayerV
 extern int ps3_noaudio;    // defined below; bisection knob, see I_StartupSound call
 static int ps3dispcalls = 0;
 static boolean ps3dtrace = false;
+
+// 2026-08-27 -- the remaining crash lands on the first drawn frame of a level:
+// tic 769-770, within two frames on every run that dies early. These marks walk
+// the stages of that frame and then go quiet, so the last one written names the
+// stage that killed it. Capped rather than gated on a frame number because the
+// counter is not reset between levels and a cap is enough for a handful of
+// frames' worth of lines.
+static int ps3_lvlmarks = 0;
+static void ps3lvl(const char *msg)
+{
+	if (ps3_lvlmarks < 64)
+	{
+		ps3_lvlmarks++;
+		PS3_Mark(msg);
+	}
+}
+
 static void ps3d(const char *msg)
 {
 	FILE *f;
@@ -502,7 +519,13 @@ static void D_Display(void)
 		// draw the view directly
 		if (cv_renderview.value && !automapactive)
 		{
+#ifdef _PS3
+			ps3lvl("L1 before R_ApplyLevelInterpolators");
+#endif
 			R_ApplyLevelInterpolators(R_UsingFrameInterpolation() ? rendertimefrac : FRACUNIT);
+#ifdef _PS3
+			ps3lvl("L2 after R_ApplyLevelInterpolators");
+#endif
 
 			for (i = 0; i <= splitscreen; i++)
 			{
@@ -569,7 +592,15 @@ static void D_Display(void)
 						// renderer itself is what kills RPCS3.
 						if (!ps3_norender3d)
 #endif
+						{
+#ifdef _PS3
+						ps3lvl("L3 before R_RenderPlayerView");
+#endif
 						R_RenderPlayerView(&players[displayplayers[i]]);
+#ifdef _PS3
+						ps3lvl("L4 after R_RenderPlayerView");
+#endif
+						}
 
 						if (i > 0)
 							M_Memcpy(ylookup, ylookup1, viewheight*sizeof (ylookup[0]));
@@ -586,7 +617,13 @@ static void D_Display(void)
 				}
 			}
 
+#ifdef _PS3
+			ps3lvl("L5 before R_RestoreLevelInterpolators");
+#endif
 			R_RestoreLevelInterpolators();
+#ifdef _PS3
+			ps3lvl("L6 after R_RestoreLevelInterpolators");
+#endif
 		}
 
 		if (lastdraw)
@@ -599,8 +636,17 @@ static void D_Display(void)
 			lastdraw = false;
 		}
 
+#ifdef _PS3
+		ps3lvl("L7 before ST_Drawer");
+#endif
 		ST_Drawer();
+#ifdef _PS3
+		ps3lvl("L8 after ST_Drawer, before HU_Drawer");
+#endif
 		HU_Drawer();
+#ifdef _PS3
+		ps3lvl("L9 after HU_Drawer");
+#endif
 	}
 
 	// change gamma if needed

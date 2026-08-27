@@ -1011,7 +1011,13 @@ static void P_LoadThings(void)
 	// cost of a handful of writes; the last line written names the survivor.
 	{
 		char ps3l[96];
-		snprintf(ps3l, sizeof ps3l, "THINGS start, nummapthings=%u", (unsigned)nummapthings);
+		// 2026-08-27: carry the map number. Two runs that picked the same map
+		// died on the same map thing, and two others died on the same frame to
+		// within 10ms across different builds -- so the death may well be
+		// deterministic per map, with the scatter coming only from the demo's
+		// random map pick. Naming the map settles that.
+		snprintf(ps3l, sizeof ps3l, "THINGS start, map=%d nummapthings=%u",
+			(int)gamemap, (unsigned)nummapthings);
 		PS3_Mark(ps3l);
 	}
 #endif
@@ -2879,8 +2885,28 @@ boolean P_SetupLevel(boolean skipprecip)
 	// This is needed. Don't touch.
 	maptol = mapheaderinfo[gamemap-1]->typeoflevel;
 
+#ifdef _PS3
+	// 2026-08-27, EXPERIMENT. The remaining crash kills the process somewhere
+	// inside this function, at a point that moves from run to run -- map thing
+	// 0 on one run, thing 82 on another, P_PreTicker on a third -- and the
+	// first level frame is never drawn. That scatter says the fault is
+	// asynchronous rather than a particular piece of code, and this flip is the
+	// only concurrent RSX activity in the whole window: it submits a frame and
+	// then the loading work runs for a second or more while the RSX chews on it.
+	//
+	// Skipping it costs nothing but the loading screen. Set
+	// PS3_NO_LOADING_FLIP to 0 to restore it.
+#define PS3_NO_LOADING_FLIP 1
+#if !PS3_NO_LOADING_FLIP
 	CON_Drawer(); // let the user know what we are going to do
 	I_FinishUpdate(); // page flip or blit buffer
+#else
+	PS3_Mark("LOADFLIP saute (experience)");
+#endif
+#else
+	CON_Drawer(); // let the user know what we are going to do
+	I_FinishUpdate(); // page flip or blit buffer
+#endif
 
 	// Initialize sector node list.
 	P_Initsecnode();

@@ -1158,6 +1158,22 @@ void F_TitleScreenTicker(boolean run)
 			return;
 		}*/
 
+#ifdef _PS3
+		// 2026-08-27 -- pin the attract demo's map. The crash turns out to be
+		// deterministic per map: map 22 dies on map thing 26 (type 760,
+		// subsector 4859, sector 567) every single time, across different
+		// builds, while other maps die elsewhere or load fine. The apparent
+		// randomness was only ever this map pick, so pinning it turns the bug
+		// into a repeatable one. Set PS3_DEMO_MAP to 0 for the stock pick.
+		//
+		// Note this really is the selection that runs: the TDEMO%03u path a
+		// little further down is dead code in Kart, so numstaff stays 0 and the
+		// old PS3_FIXED_ATTRACT_DEMO knob never did anything.
+#define PS3_DEMO_MAP 22
+		if (PS3_DEMO_MAP)
+			mapname = G_BuildMapName(PS3_DEMO_MAP);
+		else
+#endif
 		mapname = G_BuildMapName(G_RandMap(TOL_RACE, -2, false, 0, false, NULL)+1);
 
 		numstaff = 1;
