@@ -47,17 +47,33 @@
 // here is what was killing every level load.
 //
 // drawseg_t (r_defs.h) embeds two fixed_t[MAXVIDWIDTH] arrays, frontscale and
-// maskedtextureheight, so at 1920 a single drawseg costs ~15.7KB instead of the
-// ~2.7KB the game can actually use. R_StoreWallRange doubles the drawsegs array
-// as a level gets busy: 512 entries = 8MB, 1024 = 16MB, 2048 = 32MB -- and the
-// 32MB request fails with under 20MB free in lv2. Measured on 2026-08-27: three
-// doubling allocations from r_segs.c:1627, then the allocator gives up.
+// maskedtextureheight, so at 1920 a single drawseg costs ~15.7KB against ~2.7KB
+// at 320 and ~5.2KB at 640. R_StoreWallRange doubles the drawsegs array as a
+// level gets busy, and at 1920 the 2048-entry step asked for 32MB and failed
+// with under 20MB free in lv2. Measured 2026-08-27: three doubling allocations
+// from r_segs.c:1627, then the allocator gives up. visplane_t's top[] and
+// bottom[] scale the same way, so this constant is the single biggest lever on
+// renderer memory.
 //
-// 320x200 is not a guess: VID_SetMode() forces exactly that on PS3 (i_video.c),
-// and the gcm backend scales it to 1280x720 on the way out, so vid.width never
-// exceeds BASEVIDWIDTH here. RAISE THIS IN LOCKSTEP if the render resolution
-// ever changes -- a table sized below vid.width overflows.
-#if defined (_WIN32_WCE) || defined (DC) || defined (_PSP) || defined (_NDS) || defined (_PS3)
+// PS3_RENDER_W/H is the one place the render resolution is set. VID_SetMode()
+// forces it (sdl/i_video.c) and the gcm backend scales it to 1280x720 on the
+// way out (sdl/i_video_ps3_gcm.c), both deriving from these two numbers, so
+// MAXVIDWIDTH can never end up below vid.width -- which would overflow every
+// table above.
+//
+// Only exact multiples of BASEVIDWIDTH x BASEVIDHEIGHT keep the HUD sharp:
+// SRB2 derives its interface scale from vid.width/320 and vid.height/200 as
+// integers, so 640x400 doubles both cleanly while, say, 640x360 would leave
+// the HUD stuck at 1x against a 2x world.
+#ifdef _PS3
+#define PS3_RENDER_W 640
+#define PS3_RENDER_H 400
+#endif
+
+#if defined (_PS3)
+#define MAXVIDWIDTH PS3_RENDER_W
+#define MAXVIDHEIGHT PS3_RENDER_H
+#elif defined (_WIN32_WCE) || defined (DC) || defined (_PSP) || defined (_NDS)
 #define MAXVIDWIDTH 320
 #define MAXVIDHEIGHT 200
 #elif defined (GP2X)

@@ -1773,14 +1773,16 @@ INT32 VID_SetMode(INT32 modeNum)
 {
 #ifdef _PS3
 	// No SDL window/renderer on PS3 -- see i_video_ps3_gcm.h. Resolution is
-	// forced to BASEVIDWIDTHxBASEVIDHEIGHT; the gcm backend's scale factors
-	// are computed for that size at compile time.
+	// forced to PS3_RENDER_W x PS3_RENDER_H (screen.h), which is also what
+	// MAXVIDWIDTH/MAXVIDHEIGHT and the gcm backend's scaler derive from, so the
+	// three can never drift apart. There is no mode list to pick from: the
+	// backend owns the video mode, so modeNum is meaningless here.
 	(void)modeNum;
 
 	vid.recalc = 1;
 	vid.bpp = 1;
-	vid.width = BASEVIDWIDTH;
-	vid.height = BASEVIDHEIGHT;
+	vid.width = PS3_RENDER_W;
+	vid.height = PS3_RENDER_H;
 	vid.modenum = 0;
 
 	Impl_VideoSetupBuffer();
@@ -2182,8 +2184,21 @@ void I_StartupGraphics(void)
 	VID_SetMode(VID_GetModeForSize(BASEVIDWIDTH, BASEVIDHEIGHT));
 	ps3dbg("F after VID_SetMode");
 
+#ifdef _PS3
+	// 2026-08-27: VID_SetMode() is the only authority on PS3, and it has just
+	// run. Resetting to BASEVID* here is harmless on desktop, which calls
+	// VID_SetMode again later with the real mode -- PS3 never does. The result
+	// was the renderer drawing 320-wide rows into the 640-wide buffer
+	// VID_SetMode had just allocated, while the gcm scaler read 640 per row:
+	// every output row held two game rows side by side, so the picture came out
+	// duplicated horizontally and squashed vertically. Same symptom as the
+	// abandoned 640x400 attempt of 26/08.
+	vid.width = PS3_RENDER_W;
+	vid.height = PS3_RENDER_H;
+#else
 	vid.width = BASEVIDWIDTH; // Default size for startup
 	vid.height = BASEVIDHEIGHT; // BitsPerPixel is the SDL interface's
+#endif
 	vid.recalc = true; // Set up the console stufff
 	vid.direct = NULL; // Maybe direct access?
 	vid.bpp = 1; // This is the game engine's Bpp

@@ -70,14 +70,27 @@ static void ps3gcm_log_us(const char *label, u64 t0_us, u64 t1_us)
 #define PS3_SCREEN_H   720
 #define PS3_FB_COUNT     2
 
-#define SRC_W  BASEVIDWIDTH  // 320
-#define SRC_H  BASEVIDHEIGHT // 200
+// The render resolution lives in screen.h, next to MAXVIDWIDTH which is sized
+// from the same numbers -- see the comment there before changing it.
+#define SRC_W  PS3_RENDER_W
+#define SRC_H  PS3_RENDER_H
 
-#define SCALE_X  (PS3_SCREEN_W / SRC_W)               // 4
-#define SCALE_Y  ((PS3_SCREEN_H - 120) / SRC_H)        // 3 (leaves room for letterbox)
-#define DISPLAY_W  (SRC_W * SCALE_X)                   // 1280
-#define DISPLAY_H  (SRC_H * SCALE_Y)                   // 600
-#define OFFSET_Y   ((PS3_SCREEN_H - DISPLAY_H) / 2)     // 60
+// 2026-08-27: the picture now fills the screen on both axes; there is no
+// letterbox left. SCALE_X stays an exact integer (1280/320 = 4, 1280/640 = 2)
+// and the check below refuses to build if it ever stops dividing evenly, so
+// the hot inner loop keeps its plain replication.
+//
+// The vertical factor is deliberately NOT an integer: 720/200 = 3.6 and
+// 720/400 = 1.8. Forcing it to an integer is what cost us the 60px bars top
+// and bottom. Rows are mapped by span instead -- source row sy covers
+// destination rows [sy*H/SRC_H, (sy+1)*H/SRC_H) -- which fills the screen at
+// the price of rows alternating between two heights.
+#define SCALE_X    (PS3_SCREEN_W / SRC_W)
+#define DISPLAY_W  PS3_SCREEN_W
+#define DISPLAY_H  PS3_SCREEN_H
+#define OFFSET_Y   0
+
+typedef char ps3gcm_scale_x_must_be_exact[(PS3_SCREEN_W % SRC_W == 0) ? 1 : -1];
 
 static gcmContextData *context = NULL;
 static gcmConfiguration rsx_config;
@@ -514,14 +527,15 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 	{
 		const UINT8 *src_row = src + sy * SRC_W;
 		u32 scanline_argb[SRC_W];
-		u32 sx, ry;
+		u32 sx, dy;
+		const u32 y0 = (sy * PS3_SCREEN_H) / SRC_H;
+		const u32 y1 = ((sy + 1) * PS3_SCREEN_H) / SRC_H;
 
 		for (sx = 0; sx < SRC_W; sx++)
 			scanline_argb[sx] = palette_argb[src_row[sx]];
 
-		for (ry = 0; ry < SCALE_Y; ry++)
+		for (dy = y0; dy < y1; dy++)
 		{
-			u32 dy = OFFSET_Y + sy * SCALE_Y + ry;
 			u32 *dst_row = dst + dy * pitch_pixels;
 
 			for (sx = 0; sx < SRC_W; sx++)
