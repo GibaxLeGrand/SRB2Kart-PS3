@@ -219,6 +219,40 @@ static void *xm(size_t size)
 		Z_FreeTags(PU_PURGELEVEL, INT32_MAX);
 		p = malloc(padedsize);
 
+#ifdef _PS3
+		// 2026-08-27. Say so, loudly. The console dies inside P_SetupLevel's
+		// thing-spawning loop with 138MB sitting in PU_CACHE and under 20MB
+		// free in lv2, so whether this path is reached at all decides whether
+		// the crash is an allocation failure or something else entirely.
+		//
+		// PU_CACHE is tag 49, below PU_LEVEL, so the purge above cannot touch
+		// it -- and Z_Unlock(), which was meant to move lumps to the purgeable
+		// PU_CACHE_UNLOCKED, is a no-op outside _NDS. That cache is therefore
+		// unreclaimable by design, which on a 256MB machine is a wall. Try it
+		// as a last resort before giving up.
+		{
+			char line[160];
+
+			snprintf(line, sizeof line,
+				"*** xm(): malloc(%s) a ECHOUE, purge PU_PURGELEVEL %s ***",
+				sizeu1(size), p ? "a suffi" : "n'a PAS suffi");
+			PS3_Mark(line);
+			fprintf(stderr, "[PS3] %s\n", line);
+
+			if (p == NULL)
+			{
+				Z_FreeTags(PU_CACHE, PU_CACHE);
+				p = malloc(padedsize);
+
+				snprintf(line, sizeof line,
+					"*** xm(): purge de PU_CACHE en dernier recours -> %s ***",
+					p ? "RECUPERE" : "toujours rien");
+				PS3_Mark(line);
+				fprintf(stderr, "[PS3] %s\n", line);
+			}
+		}
+#endif
+
 		if (p == NULL)
 		{
 #if defined (_NDS) | defined (_PSP)
@@ -256,6 +290,27 @@ void *Z_MallocAlign(size_t size, INT32 tag, void *user, INT32 alignbits)
 
 #ifdef ZDEBUG2
 	CONS_Debug(DBG_MEMORY, "Z_Malloc %s:%d\n", file, line);
+#endif
+
+#ifdef _PS3
+	// 2026-08-27. One ~31MB request is what kills the level load, and xm()
+	// only sees the byte count, not who asked. Name anything large enough to
+	// matter on a 256MB console; there should be very few of these.
+	if (size >= 4u * 1024u * 1024u)
+	{
+		char line[128];
+
+		// Two levels of return address: the immediate caller is often
+		// Z_ReallocAlign, so the one above it is the code that actually wanted
+		// the memory. Resolve both with powerpc64-ps3-elf-addr2line against
+		// srb2kart_ps3.elf.debug.
+		snprintf(line, sizeof line, "BIG ALLOC %s octets tag=%d align=%d from=%08x via=%08x",
+			sizeu1(size), (int)tag, (int)alignbits,
+			(unsigned)(uintptr_t)__builtin_return_address(0),
+			(unsigned)(uintptr_t)__builtin_return_address(1));
+		PS3_Mark(line);
+		fprintf(stderr, "[PS3] %s\n", line);
+	}
 #endif
 
 	block = xm(sizeof *block);

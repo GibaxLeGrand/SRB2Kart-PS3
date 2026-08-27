@@ -226,7 +226,13 @@ boolean P_SetPlayerMobjState(mobj_t *mobj, statenum_t state)
 #ifdef HAVE_BLUA
 			astate = st;
 #endif
-			st->action.acp1(mobj);
+			// 2026-08-27: guarded like the other indirect action calls. This is
+			// the hottest one in the game -- every state change of every object
+			// goes through it -- and it was the one site never covered, while
+			// the crash lands in P_SetupLevel's thing-spawning loop.
+			if (!PS3_BadAction("P_SetPlayerMobjState", (INT32)(st - states),
+					(void *)st->action.acp1))
+				st->action.acp1(mobj);
 
 			// woah. a player was removed by an action.
 			// this sounds like a VERY BAD THING, but there's nothing we can do now...
@@ -297,7 +303,10 @@ boolean P_SetMobjState(mobj_t *mobj, statenum_t state)
 #ifdef HAVE_BLUA
 			astate = st;
 #endif
-			st->action.acp1(mobj);
+			// Same guard as P_SetPlayerMobjState above.
+			if (!PS3_BadAction("P_SetMobjState", (INT32)(st - states),
+					(void *)st->action.acp1))
+				st->action.acp1(mobj);
 			if (P_MobjWasRemoved(mobj))
 				return false;
 		}
@@ -9965,7 +9974,12 @@ mobj_t *P_SpawnMobj(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type)
 #ifdef HAVE_BLUA
 			astate = st;
 #endif
-			st->action.acp1(mobj);
+			// Guarded 2026-08-27: this is the MF_RUNSPAWNFUNC path, walked
+			// straight from P_SetupLevel's thing-spawning loop, which is where
+			// the crash lands.
+			if (!PS3_BadAction("P_SpawnMobj/RUNSPAWNFUNC", (INT32)(st - states),
+					(void *)st->action.acp1))
+				st->action.acp1(mobj);
 			// DANGER! This can cause P_SpawnMobj to return NULL!
 			// Avoid using MF_RUNSPAWNFUNC on mobjs whose spawn state expects target or tracer to already be set!
 			if (P_MobjWasRemoved(mobj))
@@ -10078,7 +10092,10 @@ mobj_t *P_SpawnShadowMobj(mobj_t * caster)
 #ifdef HAVE_BLUA
 			astate = st;
 #endif
-			st->action.acp1(mobj);
+			// Same guard as the other MF_RUNSPAWNFUNC path above.
+			if (!PS3_BadAction("P_SpawnMobjFromMobj/RUNSPAWNFUNC",
+					(INT32)(st - states), (void *)st->action.acp1))
+				st->action.acp1(mobj);
 			// DANGER! This is the ONLY way for P_SpawnMobj to return NULL!
 			// Avoid using MF_RUNSPAWNFUNC on mobjs whose spawn state expects target or tracer to already be set!
 			if (P_MobjWasRemoved(mobj))

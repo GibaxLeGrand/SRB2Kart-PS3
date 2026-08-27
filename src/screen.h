@@ -43,7 +43,21 @@
 // we try to re-allocate a minimum of buffers for stability of the memory,
 // so all the small-enough tables based on screen size, are allocated once
 // and for all at the maximum size.
-#if defined (_WIN32_WCE) || defined (DC) || defined (_PSP) || defined (_NDS)
+// 2026-08-27 -- PS3 belongs in the reduced branch, and not for tidiness: 1920
+// here is what was killing every level load.
+//
+// drawseg_t (r_defs.h) embeds two fixed_t[MAXVIDWIDTH] arrays, frontscale and
+// maskedtextureheight, so at 1920 a single drawseg costs ~15.7KB instead of the
+// ~2.7KB the game can actually use. R_StoreWallRange doubles the drawsegs array
+// as a level gets busy: 512 entries = 8MB, 1024 = 16MB, 2048 = 32MB -- and the
+// 32MB request fails with under 20MB free in lv2. Measured on 2026-08-27: three
+// doubling allocations from r_segs.c:1627, then the allocator gives up.
+//
+// 320x200 is not a guess: VID_SetMode() forces exactly that on PS3 (i_video.c),
+// and the gcm backend scales it to 1280x720 on the way out, so vid.width never
+// exceeds BASEVIDWIDTH here. RAISE THIS IN LOCKSTEP if the render resolution
+// ever changes -- a table sized below vid.width overflows.
+#if defined (_WIN32_WCE) || defined (DC) || defined (_PSP) || defined (_NDS) || defined (_PS3)
 #define MAXVIDWIDTH 320
 #define MAXVIDHEIGHT 200
 #elif defined (GP2X)
