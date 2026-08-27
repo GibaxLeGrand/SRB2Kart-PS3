@@ -1056,10 +1056,16 @@ static void P_LoadThings(void)
 				continue;
 			}
 
-			snprintf(ps3l, sizeof ps3l, "THINGS i=%u/%u type=%d ss=%u sec=%u slope=%p",
-				(unsigned)i, (unsigned)nummapthings, (int)mt->type,
-				(unsigned)ssnum, (unsigned)secnum, (void *)ss->sector->f_slope);
-			PS3_Mark(ps3l);
+			// One line per 64 things now that the bisection is over. The range
+			// checks above stay unconditional: they are what would catch a
+			// genuinely bad lookup, and they cost nothing.
+			if ((i & 63) == 0)
+			{
+				snprintf(ps3l, sizeof ps3l, "THINGS i=%u/%u type=%d ss=%u sec=%u slope=%p",
+					(unsigned)i, (unsigned)nummapthings, (int)mt->type,
+					(unsigned)ssnum, (unsigned)secnum, (void *)ss->sector->f_slope);
+				PS3_Mark(ps3l);
+			}
 		}
 #endif
 		mtsector = R_PointInSubsector(mt->x << FRACBITS, mt->y << FRACBITS)->sector;
@@ -2896,7 +2902,7 @@ boolean P_SetupLevel(boolean skipprecip)
 	//
 	// Skipping it costs nothing but the loading screen. Set
 	// PS3_NO_LOADING_FLIP to 0 to restore it.
-#define PS3_NO_LOADING_FLIP 1
+#define PS3_NO_LOADING_FLIP 0
 #if !PS3_NO_LOADING_FLIP
 	CON_Drawer(); // let the user know what we are going to do
 	I_FinishUpdate(); // page flip or blit buffer
@@ -3525,23 +3531,9 @@ boolean P_SetupLevel(boolean skipprecip)
 			if (playeringame[i])
 				G_CopyTiccmd(&players[i].cmd, &netcmds[buf][i], 1);
 		}
-#ifdef _PS3
-		// 2026-08-27 -- the run dies just past the H11 probe, and almost
-		// everything between here and the end of P_SetupLevel is this call.
-		// P_PreTicker runs two whole game tics before the level is ever drawn,
-		// which is the first time gravity acts and anything moves vertically --
-		// the symptom Alex reports from watching the screen.
-		PS3_Mark("PRETICKER before P_PreTicker(2)");
-#endif
 		P_PreTicker(2);
-#ifdef _PS3
-		PS3_Mark("PRETICKER after P_PreTicker(2)");
-#endif
 #ifdef HAVE_BLUA
 		LUAh_MapLoad();
-#ifdef _PS3
-		PS3_Mark("PRETICKER after LUAh_MapLoad");
-#endif
 #endif
 	}
 

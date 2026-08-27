@@ -1169,7 +1169,7 @@ void F_TitleScreenTicker(boolean run)
 		// Note this really is the selection that runs: the TDEMO%03u path a
 		// little further down is dead code in Kart, so numstaff stays 0 and the
 		// old PS3_FIXED_ATTRACT_DEMO knob never did anything.
-#define PS3_DEMO_MAP 22
+#define PS3_DEMO_MAP 0
 		if (PS3_DEMO_MAP)
 			mapname = G_BuildMapName(PS3_DEMO_MAP);
 		else

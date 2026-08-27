@@ -10993,7 +10993,7 @@ void P_MovePlayerToSpawn(INT32 playernum, mapthing_t *mthing)
 			// trips the fault. Report the drop, and optionally remove it, so
 			// the theory can be answered by A/B rather than argued about.
 			// Set PS3_NO_SPAWN_FALL to 0 to restore stock behaviour.
-#define PS3_NO_SPAWN_FALL 1
+#define PS3_NO_SPAWN_FALL 0
 			{
 				char ps3l[128];
 
@@ -11206,6 +11206,7 @@ void P_SpawnMapThing(mapthing_t *mthing)
 		CONS_Alert(CONS_WARNING, M_GetText("Unknown thing type %d placed at (%d, %d)\n"), mthing->type, mthing->x, mthing->y);
 		i = MT_UNKNOWN;
 	}
+
 
 	if (metalrecording) // Metal Sonic can't use these things.
 		if (mobjinfo[i].flags & (MF_ENEMY|MF_BOSS) || i == MT_EMMY || i == MT_STARPOST)
