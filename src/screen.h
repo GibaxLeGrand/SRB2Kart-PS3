@@ -66,8 +66,8 @@
 // integers, so 640x400 doubles both cleanly while, say, 640x360 would leave
 // the HUD stuck at 1x against a 2x world.
 #ifdef _PS3
-#define PS3_RENDER_W 640
-#define PS3_RENDER_H 400
+#define PS3_RENDER_W 320
+#define PS3_RENDER_H 200
 #endif
 
 #if defined (_PS3)

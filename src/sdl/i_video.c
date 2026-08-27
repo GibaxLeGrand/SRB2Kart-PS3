@@ -1330,6 +1330,7 @@ void I_OsPolling(void)
 		I_GetConsoleEvents();
 #ifdef _PS3
 	PS3_PollPadHotplug();
+	PS3_PollSysutil();
 #endif
 	if (SDL_WasInit(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) == (SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER))
 	{

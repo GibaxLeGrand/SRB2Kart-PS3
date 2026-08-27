@@ -101,6 +101,12 @@ void SDLforceUngrabMouse(void);
 // opens a controller from the use_joystick cvar callback, which fires once at
 // config load; pads that appear later need somebody to look for them.
 void PS3_PollPadHotplug(void);
+
+// The PS button: register the lv2 exit callback once at startup, then answer it
+// once per frame. Without the per-frame call the callback never fires and the
+// console has to be powered off by hand. See i_system.c for the full note.
+void PS3_InitSysutil(void);
+void PS3_PollSysutil(void);
 #endif
 
 // Needed for some WIN32 functions

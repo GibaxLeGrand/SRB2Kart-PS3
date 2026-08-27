@@ -2367,6 +2367,66 @@ void PS3_PollPadHotplug(void)
 	I_InitJoystick3();
 	I_InitJoystick4();
 }
+
+//
+// PS3_InitSysutil / PS3_PollSysutil -- added 2026-08-28
+//
+// Pressing the PS button opens the XMB, and lv2 then asks the title to quit by
+// posting CELL_SYSUTIL_REQUEST_EXITGAME to a registered callback. That callback
+// only ever runs while the title is calling cellSysutilCheckCallback(), and
+// nothing in this build did: the call lives in SDL's PSL1GHT event backend,
+// which stopped running once SDL_INIT_VIDEO left the picture. On hardware that
+// means the console has to be powered off by hand after every test.
+//
+// The API names are the reference-SDK ones on purpose. PS3DK's <cell/sysutil.h>
+// ships those and explicitly notes that the PSL1GHT sysUtil* forwarders are
+// absent, so copying the lowercase spelling would not have linked. Both calls
+// were exercised on the real console by pkgtest -- rung 03 registers, rung 09
+// polls -- before being used here.
+//
+// The exit follows what the engine already does for a closed window: I_GetEvent()
+// answers SDL_QUIT with I_Quit() from this same I_OsPolling call, so I_Quit()
+// saves the config and shuts the subsystems down the normal way.
+//
+#include <cell/sysutil.h>
+
+static volatile int ps3_exitrequested = 0;
+
+static void PS3_SysutilCallback(uint64_t status, uint64_t param, void *userdata)
+{
+	(void)param;
+	(void)userdata;
+
+	if (status == CELL_SYSUTIL_REQUEST_EXITGAME)
+		ps3_exitrequested = 1;
+}
+
+void PS3_InitSysutil(void)
+{
+	FILE *f;
+	int rc;
+
+	rc = cellSysutilRegisterCallback(0, PS3_SysutilCallback, NULL);
+
+	f = fopen(PS3_DebugPath("psdebugP.txt"), "a");
+	if (f)
+	{
+		fprintf(f, "cellSysutilRegisterCallback(0) -> %d\n", rc);
+		fflush(f);
+		fclose(f);
+	}
+}
+
+void PS3_PollSysutil(void)
+{
+	cellSysutilCheckCallback();
+
+	if (ps3_exitrequested)
+	{
+		ps3_exitrequested = 0;
+		I_Quit();
+	}
+}
 #endif // _PS3
 
 //
@@ -3417,6 +3477,7 @@ INT32 I_StartupSystem(void)
 	// it here means the report exists even when use_joystick is 0 and
 	// I_InitJoystick never runs.
 	PS3_ProbePads();
+	PS3_InitSysutil();
 #endif
 #ifndef NOMUMBLE
 	I_SetupMumble();

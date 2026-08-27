@@ -21,6 +21,9 @@
 #include "../m_argv.h"
 #include "../d_main.h"
 #include "../i_system.h"
+#ifdef _PS3
+#include "../screen.h" // PS3_RENDER_W/H, stamped into the boot marker below
+#endif
 
 #ifdef _PS3
 #include <sys/process.h>
@@ -171,7 +174,8 @@ int main(int argc, char **argv)
 		FILE *ps3boot = fopen(PS3_INSTALLDIR "/psdebug_boot.txt", "w");
 		if (ps3boot)
 		{
-			fprintf(ps3boot, "B1 main() reached, argc=%d, argv0=%s\n",
+			fprintf(ps3boot, "B1 main() reached, render %dx%d, built %s %s, argc=%d, argv0=%s\n",
+				PS3_RENDER_W, PS3_RENDER_H, __DATE__, __TIME__,
 				argc, (argc > 0 && argv && argv[0]) ? argv[0] : "(null)");
 			fflush(ps3boot);
 			fclose(ps3boot);
