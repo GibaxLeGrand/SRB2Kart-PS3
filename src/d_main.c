@@ -881,8 +881,9 @@ static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at pr
 #define PS3TRACE_LOGIC    8	// ps3cs / ps3n / ps3gt2, game logic, furthest from the RSX
 #define PS3TRACE_DISPLAY_SYNC 16	// ps3d sites issue a "sync" barrier instead of writing
 #define PS3TRACE_STATE       32	// psdebugS.txt game-state log (cheap, see PS3_StateWatch)
-#define PS3TRACE_FIFO        64	// command-FIFO watch in i_video_ps3_gcm.c (cheap, ~30 lines/lap)
+#define PS3TRACE_FIFO        64	// command-FIFO watch in i_video_ps3_gcm.c (~30 lines/lap, in bursts)
 #define PS3TRACE_MARK       128	// PS3_Mark() checkpoints on one-shot paths (cheap, ~10 lines)
+#define PS3TRACE_HEAPBEAT   256	// PS3_HeapProbe() on the STATE heartbeat -- 10ms/s on console
 
 // Shipping value. DISPLAY_SYNC is a WORKAROUND, not a fix: without some
 // serialisation at the ps3d sites the game does not survive two intro tics,
@@ -893,7 +894,30 @@ static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at pr
 // wraps cleanly every ~250 flips and the crash lands 145 frames off one. Kept
 // on because it is nearly free and it dates the wraps on the same timeline.
 // ~18:50: MARK added to walk the title-screen -> attract-demo transition.
-int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE | PS3TRACE_FIFO | PS3TRACE_MARK;
+//
+// 2026-08-28: two of these are off now, because "nearly free" was an emulator
+// figure and the console disagrees. Measured in the console's own psdebugS.txt
+// from the 27/08 run (165s on the title screen at a 59.96fps average):
+//
+//   HEAPBEAT -- the once-a-second Z_CheckHeap-style walk that rode along with
+//     the STATE heartbeat. The log timestamps it against itself: the "HEAP"
+//     line lands 9-13ms after the "heartbeat" line that precedes it, once with
+//     a 32ms outlier. It walks 60002 blocks scattered over a 175MB zone,
+//     chasing five pointers each, so it is a cache-miss storm rather than a
+//     loop. With vsync, any frame over 16.7ms misses its vblank and becomes a
+//     33ms frame -- which is the "sometimes it drops under 30fps" report,
+//     arriving once per second like clockwork. It was built for the level-load
+//     crash hunt, and that crash was fixed by MAXVIDWIDTH and -fno-jump-tables.
+//     The P_SetupLevel probes stay: they run where a hitch does not show.
+//
+//   FIFO -- 1420 lines in those same 165s, and they do not arrive evenly. The
+//     watch logs through a 16-flip danger window before each wrap, so it lands
+//     as ~30 writes inside a quarter of a second, roughly every 3.5s. At 903us
+//     a write that is another missed vblank. Its own note above records that
+//     the question it was built to answer came back negative.
+//
+// Both keep their bits, so either is one word away from coming back.
+int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE | PS3TRACE_MARK;
 
 // 2026-08-26 -- bisection knobs, temporary, NOT shipping options. Set both
 // back to 0 once the questions they answer are settled.
@@ -1371,7 +1395,13 @@ static void PS3_StateWatch(unsigned int frame, unsigned int frame_us)
 		// Once a second, validate the whole zone heap. GS_LEVEL is one of the
 		// three places RPCS3 has died, so the level-load probes in
 		// P_SetupLevel are not enough on their own.
-		PS3_HeapProbe("heartbeat");
+		//
+		// Off by default since 2026-08-28: 60002 blocks over a 175MB zone cost
+		// 9-13ms here on the console, which turns one frame a second into a
+		// missed vblank. See the PS3TRACE_HEAPBEAT note in the ps3_debugtrace
+		// block. Turn the bit back on when hunting a heap corruption again.
+		if (ps3_debugtrace & PS3TRACE_HEAPBEAT)
+			PS3_HeapProbe("heartbeat");
 	}
 }
 
