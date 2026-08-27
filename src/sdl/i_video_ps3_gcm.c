@@ -495,7 +495,112 @@ static void clear_letterbox(void)
 }
 
 // ============================================================
-// PS3GCM_FinishUpdate — palette convert + nearest-neighbor scale
+// RSX 2D scaled blit — added 2026-08-28
+// ============================================================
+//
+// Measured on the console 2026-08-28: the CPU scale below costs 2626us at
+// 320x200 and 4085us at 640x480. The loop is not the problem -- it already
+// precomputes the palette per scanline and replicates with an integer step,
+// which is better than dragonfly-quake-ps3 does (its VID_PS3_Present divides
+// once per destination pixel). The problem is *where* it writes: 1280x720x4 =
+// 3.7MB of PPE stores per frame into RSX local memory, which the PPE reaches
+// over FlexIO uncached.
+//
+// So stop writing there. The RSX has a 2D blit engine that reads a surface out
+// of main memory, scales it by an arbitrary fixed-point ratio and writes it to
+// the framebuffer itself. The PPE then only converts the palette into a small
+// buffer in *cached* main memory: 1.2MB of cached writes at 640x480 instead of
+// 3.7MB of uncached ones, and no scaling at all. It also makes the cost
+// independent of the output resolution.
+//
+// Neither reference port does this. dragonfly scales on the CPU exactly like we
+// did; IoQuake3-PS3 goes through a textured quad, which works but needs a Cg
+// vertex+fragment program (their q3_fp_replace is 96 bytes compiled). The 2D
+// engine needs no shader, no vertex buffer and no matrix.
+//
+// API verified against PS3DK's headers before writing any of this:
+// rsx/commands_inc.h:649 for the two calls, rsx/gcm_sys.h for gcmTransferScale,
+// gcmTransferSurface, the GCM_TRANSFER_* constants and gcmMapMainMemory;
+// rsx/rsx.h:127 for rsxGetFixedSint32 (12.20 fixed point).
+//
+// The old CPU path is still compiled in. Set ps3gcm_rsx_blit to 0 to get it
+// back -- if the blit ever comes up black on hardware, that is the fallback,
+// and it is also the A/B for the timing.
+
+int ps3gcm_rsx_blit = 1;
+
+static void *stage_addr   = NULL;  // palette-converted ARGB, main memory
+static u32   stage_offset = 0;     // the same block, as an RSX offset
+static int   stage_state  = 0;     // 0 = untried, 1 = ready, -1 = unavailable
+
+// Lazily set up on the first frame rather than inside PS3GCM_VideoInit: that
+// sequence is validated on hardware and not worth disturbing for this.
+static void stage_init(void)
+{
+	const u32 need  = (u32)SRC_W * (u32)SRC_H * 4;
+	const u32 mapsz = (need + 0xFFFFFu) & ~0xFFFFFu;  // whole megabytes
+	FILE *f;
+
+	stage_state = -1;
+
+	stage_addr = memalign(1024 * 1024, mapsz);
+	if (stage_addr && gcmMapMainMemory(stage_addr, mapsz, &stage_offset) == 0)
+		stage_state = 1;
+
+	f = fopen(PS3_DebugPath("psdebugV.txt"), "a");
+	if (f)
+	{
+		fprintf(f, "RSX blit: staging %ux%u (%u octets, mappe %u) addr=%p offset=0x%08x -> %s\n",
+			(unsigned)SRC_W, (unsigned)SRC_H, (unsigned)need, (unsigned)mapsz,
+			stage_addr, (unsigned)stage_offset,
+			stage_state == 1 ? "PRET" : "INDISPONIBLE, repli sur le scale CPU");
+		fflush(f);
+		fclose(f);
+	}
+}
+
+// Queue the scaled blit. Asynchronous: it lands in the same command buffer as
+// the flip that follows, so ordering is already guaranteed.
+static void stage_blit(void)
+{
+	gcmTransferScale scale;
+	gcmTransferSurface surf;
+
+	scale.conversion = GCM_TRANSFER_CONVERSION_TRUNCATE;
+	scale.format     = GCM_TRANSFER_SCALE_FORMAT_A8R8G8B8;
+	scale.operation  = GCM_TRANSFER_OPERATION_SRCCOPY;
+	scale.clipX      = 0;
+	scale.clipY      = 0;
+	scale.clipW      = PS3_SCREEN_W;
+	scale.clipH      = PS3_SCREEN_H;
+	scale.outX       = 0;
+	scale.outY       = 0;
+	scale.outW       = PS3_SCREEN_W;
+	scale.outH       = PS3_SCREEN_H;
+	// Source-to-destination ratio, not the other way round.
+	scale.ratioX     = rsxGetFixedSint32((f32)SRC_W / (f32)PS3_SCREEN_W);
+	scale.ratioY     = rsxGetFixedSint32((f32)SRC_H / (f32)PS3_SCREEN_H);
+	scale.inW        = SRC_W;
+	scale.inH        = SRC_H;
+	scale.pitch      = SRC_W * 4;
+	scale.origin     = GCM_TRANSFER_ORIGIN_CORNER;
+	// NEAREST on purpose: it reproduces what the CPU loop did, so the A/B
+	// compares timing and nothing else. LINEAR is one word away afterwards.
+	scale.interp     = GCM_TRANSFER_INTERPOLATOR_NEAREST;
+	scale.offset     = stage_offset;
+	scale.inX        = 0;
+	scale.inY        = 0;
+
+	surf.format = GCM_TRANSFER_SURFACE_FORMAT_A8R8G8B8;
+	surf.pitch  = color_pitch;
+	surf.offset = fb_offset[fb_index];
+
+	rsxSetTransferScaleMode(context, GCM_TRANSFER_MAIN_TO_LOCAL, GCM_TRANSFER_SURFACE);
+	rsxSetTransferScaleSurface(context, &scale, &surf);
+}
+
+// ============================================================
+// PS3GCM_FinishUpdate — palette convert + scale
 // ============================================================
 
 void PS3GCM_FinishUpdate(const UINT8 *src)
@@ -515,6 +620,39 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 	{
 		clear_letterbox();
 		letterbox_cleared = 1;
+	}
+
+	if (ps3gcm_rsx_blit)
+	{
+		if (stage_state == 0)
+			stage_init();
+
+		if (stage_state == 1)
+		{
+			u32 *sd = (u32 *)stage_addr;
+			u32 i;
+			const u32 n = (u32)SRC_W * (u32)SRC_H;
+
+			if (timing)
+				t0 = ps3gcm_now_us();
+
+			// Palette only. No scaling, and every store lands in cached
+			// main memory instead of across FlexIO.
+			for (i = 0; i < n; i++)
+				sd[i] = palette_argb[src[i]];
+
+			// Make those stores visible to the RSX before it reads them.
+			__asm__ __volatile__("sync" ::: "memory");
+
+			stage_blit();
+
+			if (timing)
+			{
+				t1 = ps3gcm_now_us();
+				ps3gcm_log_us("PS3GCM_FinishUpdate (palette -> RAM + blit RSX)", t0, t1);
+			}
+			return;
+		}
 	}
 
 	dst = (u32 *)fb_addr[fb_index];
