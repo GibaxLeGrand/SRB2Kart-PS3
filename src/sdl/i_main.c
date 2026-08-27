@@ -22,6 +22,27 @@
 #include "../d_main.h"
 #include "../i_system.h"
 
+#ifdef _PS3
+#include <sys/process.h>
+
+// 2026-08-27: declare the primary PPU thread's priority and stack size.
+//
+// Without this the process takes lv2's default primary stack, which is far
+// smaller than the 1MB RPCS3 hands out -- our own probe reports
+// "stack size=1048576" under the emulator, which is why nothing ever showed
+// up there.  On real hardware the game froze inside P_BackupTables(), and the
+// reason is that lzf_compress() puts its hash table ON THE STACK:
+//
+//     #define HLOG 15
+//     typedef const u8 *LZF_STATE[1 << (HLOG)];   // 32768 pointers
+//     #define LZF_STATE_ARG 0                     // stack-allocated
+//
+// That is 128KB in one frame with 32-bit PPU pointers.  IoQuake3-PS3 declares
+// SYS_PROCESS_PARAM(1001, 0x100000) for the same reason; PS3DK's own samples
+// use the macro too, and lv2.ld already places the .sys_proc_param section.
+SYS_PROCESS_PARAM(1001, 0x100000);
+#endif
+
 #ifdef __GNUC__
 #include <unistd.h>
 #endif

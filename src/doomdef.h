@@ -432,10 +432,10 @@ enum {
 
 #ifdef _PS3
 // 2026-08-26 -- where the .pkg installs the game on a real PS3. Must stay in
-// step with APPID in package_srb2kart_pkg.sh; grep for SRB2K00001 to see every
+// step with APPID in package_srb2kart_pkg.sh; grep for SRBK00001 to see every
 // place it appears. Used both to find srb2.srb (sdl/i_system.c) and to decide
 // where to write config, saves and debug logs (D_Home in d_main.c).
-#define PS3_INSTALLDIR "/dev_hdd0/game/SRB2K00001/USRDIR"
+#define PS3_INSTALLDIR "/dev_hdd0/game/SRBK00001/USRDIR"
 #endif
 
 // Name of local directory for config files and savegames

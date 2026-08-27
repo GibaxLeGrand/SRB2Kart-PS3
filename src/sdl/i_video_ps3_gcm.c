@@ -343,7 +343,28 @@ void PS3GCM_VideoInit(void)
 		vconfig.format     = VIDEO_BUFFER_FORMAT_XRGB;
 		vconfig.pitch      = PS3_SCREEN_W * 4;
 		vconfig.aspect     = vstate.displayMode.aspect;
-		rc_conf = videoConfigure(0, &vconfig, NULL, 0);
+		// 2026-08-27: waitForEvent=1, plus a bounded poll until the display
+		// pipeline leaves state 3 (not ready). dragonfly-quake-ps3 does both,
+		// and this is the configuration pkgtest validated on real hardware.
+		// Measured there the wait returns immediately (0 spins), so this is
+		// belt-and-braces -- the actual fix was the flip wait in PS3GCM_Flip.
+		rc_conf = videoConfigure(0, &vconfig, NULL, 1);
+
+		{
+			videoState ws;
+			int spins;
+
+			memset(&ws, 0, sizeof ws);
+
+			for (spins = 0; spins < 300; spins++)
+			{
+				sysUsleep(10000);
+				if (videoGetState(0, 0, &ws) != 0)
+					break;
+				if (ws.state != 3)
+					break;
+			}
+		}
 
 		memset(&vstate, 0, sizeof vstate);
 		memset(&vres, 0, sizeof vres);
@@ -382,10 +403,16 @@ void PS3GCM_VideoInit(void)
 		memset(fb_addr[i], 0, fb_size);
 	}
 
-	// No flip-wait: gcmSetWaitFlip()/polling gcmGetFlipStatus() is what hung
-	// (both in our own SDL2_PSL1GHT investigation and independently in
-	// TanakaDOOM-cGcm). HSYNC mode removes the internal vsync wait as well.
-	gcmSetFlipMode(GCM_FLIP_HSYNC);
+	// 2026-08-27: REVERSED after the first successful real-hardware test.
+	// HSYNC-with-no-wait came from an investigation carried out entirely
+	// under RPCS3. On a real PS3 it means the flip is never confirmed and
+	// nothing reaches the screen -- the console showed a red flash then
+	// black while every API call returned success. pkgtest proved the fix:
+	// VSYNC + gcmSetWaitFlip + polling gcmGetFlipStatus() gave a stable
+	// picture, flip confirmed in 52 x 200us, 117/120 flips confirmed.
+	// PS3GCM_Flip() degrades back to this old behaviour automatically if
+	// the wait never completes, which is what RPCS3 used to do.
+	gcmSetFlipMode(GCM_FLIP_VSYNC);
 
 	gcmResetFlipStatus();
 	gcmSetFlip(context, 1);
@@ -522,6 +549,11 @@ void PS3GCM_FinishUpdate(const UINT8 *src)
 // Deliberately zero instrumentation here -- see the note above
 // PS3GCM_TIMING_FRAMES. This must stay exactly as validated.
 
+// 2026-08-27: flip-wait state. Enabled by default because real hardware
+// requires it; cleared for good after ten consecutive unconfirmed flips.
+static int flip_wait_enabled = 1;
+static int flip_wait_misses  = 0;
+
 void PS3GCM_Flip(void)
 {
 	// 2026-08-26: the two watch calls are the one exception to the "zero
@@ -531,8 +563,44 @@ void PS3GCM_Flip(void)
 	// to wrap. See the ps3gcm_fifo_watch block for why that window matters.
 	ps3gcm_fifo_watch(0);
 
+	if (flip_wait_enabled)
+		gcmResetFlipStatus();
+
 	gcmSetFlip(context, fb_index);
 	flush_buffer();
+
+	// 2026-08-27: wait for the flip to actually complete. Real hardware
+	// needs this -- without it the RSX never presents and the screen stays
+	// black. The wait is bounded at ~25ms (one 60Hz frame plus margin) so a
+	// host that never confirms cannot freeze the game, and ten consecutive
+	// timeouts disable the whole path and restore the pre-27/08 behaviour
+	// that RPCS3 was validated on.
+	if (flip_wait_enabled)
+	{
+		int spins;
+
+		gcmSetWaitFlip(context);
+		flush_buffer();
+
+		for (spins = 0; spins < 125; spins++)
+		{
+			if (gcmGetFlipStatus() == 0)
+				break;
+			sysUsleep(200);
+		}
+
+		if (spins < 125)
+		{
+			flip_wait_misses = 0;
+		}
+		else if (++flip_wait_misses >= 10)
+		{
+			flip_wait_enabled = 0;
+			gcmSetFlipMode(GCM_FLIP_HSYNC);
+			fprintf(stderr, "[SRB2Kart PS3] flip wait never confirmed, "
+				"falling back to HSYNC without wait%s", "\n");
+		}
+	}
 
 	ps3gcm_fifo_watch(1);
 
