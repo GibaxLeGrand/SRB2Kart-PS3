@@ -1017,16 +1017,46 @@ static void P_LoadThings(void)
 #endif
 	for (i = 0; i < nummapthings; i++, mt++)
 	{
+		sector_t *mtsector;
 #ifdef _PS3
-		if ((i & 63) == 0)
+		// 2026-08-27 -- one line per thing now, not one per 64. Seven runs out
+		// of eight die inside this loop, and the two dereferences below are the
+		// only wild ones on the path: R_PointInSubsector walks the BSP, and
+		// f_slope is followed straight into P_GetZAt. Report the subsector and
+		// sector indices before touching them, so the last line names both the
+		// thing that killed the run and whether the lookup was already bogus.
 		{
-			char ps3l[96];
-			snprintf(ps3l, sizeof ps3l, "THINGS i=%u/%u type=%d",
-				(unsigned)i, (unsigned)nummapthings, (int)mt->type);
+			subsector_t *ss = R_PointInSubsector(mt->x << FRACBITS, mt->y << FRACBITS);
+			char ps3l[160];
+			size_t ssnum = (size_t)(ss - subsectors);
+			size_t secnum;
+
+			if (ss < subsectors || ssnum >= numsubsectors)
+			{
+				snprintf(ps3l, sizeof ps3l,
+					"*** THINGS i=%u type=%d: SUBSECTOR HORS PLAGE %p (n=%u) ***",
+					(unsigned)i, (int)mt->type, (void *)ss, (unsigned)numsubsectors);
+				PS3_Mark(ps3l);
+				continue;
+			}
+
+			secnum = (size_t)(ss->sector - sectors);
+			if (ss->sector == NULL || ss->sector < sectors || secnum >= numsectors)
+			{
+				snprintf(ps3l, sizeof ps3l,
+					"*** THINGS i=%u type=%d: SECTEUR HORS PLAGE %p (n=%u) ***",
+					(unsigned)i, (int)mt->type, (void *)ss->sector, (unsigned)numsectors);
+				PS3_Mark(ps3l);
+				continue;
+			}
+
+			snprintf(ps3l, sizeof ps3l, "THINGS i=%u/%u type=%d ss=%u sec=%u slope=%p",
+				(unsigned)i, (unsigned)nummapthings, (int)mt->type,
+				(unsigned)ssnum, (unsigned)secnum, (void *)ss->sector->f_slope);
 			PS3_Mark(ps3l);
 		}
 #endif
-		sector_t *mtsector = R_PointInSubsector(mt->x << FRACBITS, mt->y << FRACBITS)->sector;
+		mtsector = R_PointInSubsector(mt->x << FRACBITS, mt->y << FRACBITS)->sector;
 
 		// Z for objects
 		mt->z = (INT16)(
@@ -3469,9 +3499,23 @@ boolean P_SetupLevel(boolean skipprecip)
 			if (playeringame[i])
 				G_CopyTiccmd(&players[i].cmd, &netcmds[buf][i], 1);
 		}
+#ifdef _PS3
+		// 2026-08-27 -- the run dies just past the H11 probe, and almost
+		// everything between here and the end of P_SetupLevel is this call.
+		// P_PreTicker runs two whole game tics before the level is ever drawn,
+		// which is the first time gravity acts and anything moves vertically --
+		// the symptom Alex reports from watching the screen.
+		PS3_Mark("PRETICKER before P_PreTicker(2)");
+#endif
 		P_PreTicker(2);
+#ifdef _PS3
+		PS3_Mark("PRETICKER after P_PreTicker(2)");
+#endif
 #ifdef HAVE_BLUA
 		LUAh_MapLoad();
+#ifdef _PS3
+		PS3_Mark("PRETICKER after LUAh_MapLoad");
+#endif
 #endif
 	}
 

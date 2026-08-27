@@ -62,13 +62,18 @@ void PS3_StackTouch(void);
 
 // 2026-08-26 -- returns non-zero when an indirect action call is about to jump
 // somewhere invalid, after reporting it. Defined in d_main.c.
-int PS3_BadAction(const char *where, INT32 statenum, void *fn);
-
-// 2026-08-26 -- builds a debug-file path under srb2home. Defined in d_main.c.
+int PS3_BadAction(const char *where, INT32 statenum, void *fn);
+
+// 2026-08-27 -- same, for indirect calls that carry no state number, such as the
+// thinker function pointers run by P_RunThinkers. Defined in d_main.c.
+int PS3_BadFunc(const char *where, void *fn);
+
+// 2026-08-26 -- builds a debug-file path under srb2home. Defined in d_main.c.
 const char *PS3_DebugPath(const char *name);
 #else
 // Off-PS3 the guards at the indirect action-call sites compile away entirely.
 #define PS3_BadAction(where, statenum, fn) 0
+#define PS3_BadFunc(where, fn) 0
 #endif
 
 #endif //__D_MAIN__

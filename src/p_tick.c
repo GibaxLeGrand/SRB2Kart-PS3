@@ -310,6 +310,13 @@ static inline void P_RunThinkers(void)
 		{
 #ifdef _PS3
 			PS3_StackTouch(); // thinkers call into each other
+			// 2026-08-27: the last unguarded indirect call in the game, and the
+			// hottest -- once per live object per tic. The remaining crash is a
+			// host segfault with rip=0, i.e. the guest branching through a null
+			// code pointer, and a thinker that survived a purge with a freed
+			// function pointer would look exactly like that.
+			if (PS3_BadFunc("P_RunThinkers", (void *)currentthinker->function.acp1))
+				continue;
 #endif
 			currentthinker->function.acp1(currentthinker);
 		}

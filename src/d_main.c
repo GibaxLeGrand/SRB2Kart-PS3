@@ -1182,6 +1182,39 @@ static unsigned int ps3state_frame_us = 0;
 #define PS3_CODE_LO 0x00010000u
 #define PS3_CODE_HI 0x003a0000u
 
+// 2026-08-27 -- the same pointer sanity as PS3_BadAction, minus the state
+// number, for indirect calls that are not state actions. P_RunThinkers is the
+// one that matters: thinker_t.function.acp1 is called directly for every live
+// object every tic, and it was the last unguarded indirect call in the game.
+int PS3_BadFunc(const char *where, void *fn)
+{
+	static int reported = 0;
+	u32 a = (u32)(uintptr_t)fn;
+	const char *why = NULL;
+	char line[192];
+
+	if (fn == NULL)
+		why = "NULL function";
+	else if ((a & 3u) != 0u)
+		why = "misaligned function pointer";
+	else if (a < PS3_CODE_LO || a >= PS3_CODE_HI)
+		why = "function pointer outside the image";
+
+	if (why == NULL)
+		return 0;
+
+	if (reported < 24)
+	{
+		reported++;
+		snprintf(line, sizeof line, "*** BAD CALL *** %s: fn=%08x -- %s (skipped)",
+			where, (unsigned)a, why);
+		PS3_Mark(line);
+		fprintf(stderr, "[PS3] %s\n", line);
+	}
+
+	return 1;
+}
+
 int PS3_BadAction(const char *where, INT32 statenum, void *fn)
 {
 	static int reported = 0;
