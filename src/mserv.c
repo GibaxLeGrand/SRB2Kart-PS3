@@ -101,6 +101,19 @@ UINT16 current_port = 0;
   */
 void AddMServCommands(void)
 {
+	// 2026-08-27: these two are registered even under NONET. Everything else
+	// below is genuinely network transport, but cv_servername is read by plain
+	// single-player code: d_main.c and m_menu.c both run
+	//     strncpy(connectedservername, cv_servername.string, MAXSERVERNAME);
+	// when a map is started. An unregistered consvar_t still has a NULL
+	// .string, so starting a race by hand crashed on a NULL source pointer,
+	// while attract demos -- which never take that path -- were fine. The menu
+	// also binds its "Server Name" entries straight to &cv_servername.
+	// Both carry CV_NOINIT, so registering them fires no callback, and
+	// Update_parameters is empty without MASTERSERVER anyway.
+	CV_RegisterVar(&cv_servername);
+	CV_RegisterVar(&cv_server_contact);
+
 #ifndef NONET
 	CV_RegisterVar(&cv_masterserver);
 	CV_RegisterVar(&cv_masterserver_update_rate);
@@ -110,8 +123,6 @@ void AddMServCommands(void)
 	CV_RegisterVar(&cv_masterserver_nagattempts);
 	CV_RegisterVar(&cv_advertise);
 	CV_RegisterVar(&cv_rendezvousserver);
-	CV_RegisterVar(&cv_servername);
-	CV_RegisterVar(&cv_server_contact);
 #ifdef MASTERSERVER
 	COM_AddCommand("listserv", Command_Listserv_f);
 #endif

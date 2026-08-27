@@ -2635,9 +2635,16 @@ static void CL_ConnectToServer(void)
 {
 	INT32 pnumnodes, nodewaited = doomcom->numnodes, i;
 	tic_t oldtic;
-#ifndef NONET
+	// 2026-08-27: asksent used to be declared, initialised and passed only
+	// under !NONET -- the NONET call site handed CL_ServerConnectionTicker a
+	// literal (tic_t *)NULL, which the connection state machine then
+	// dereferences somewhere along the NONET path. Starting any map by hand
+	// died there; attract demos never reach SV_SpawnServer, which is why only
+	// a hand-started race crashed. Upstream never builds single-player with
+	// NONET, so nobody exercised it. Handing it a real object is the fix:
+	// established by measurement, not by reading -- the same run then reaches
+	// GS_LEVEL and holds 59.99fps for a minute instead of dying instantly.
 	tic_t asksent;
-#endif
 #ifdef JOININGAME
 	XBOXSTATIC char tmpsave[264];
 
@@ -2676,8 +2683,8 @@ static void CL_ConnectToServer(void)
 	ClearAdminPlayers();
 	pnumnodes = 1;
 	oldtic = 0;
-#ifndef NONET
 	asksent = 0;
+#ifndef NONET
 	firstconnectattempttime = I_GetTime();
 
 	i = SL_SearchServer(servernode);
@@ -2706,7 +2713,7 @@ static void CL_ConnectToServer(void)
 #ifndef NONET
 		if (!CL_ServerConnectionTicker(tmpsave, &oldtic, &asksent))
 #else
-		if (!CL_ServerConnectionTicker((char*)NULL, &oldtic, (tic_t *)NULL))
+		if (!CL_ServerConnectionTicker((char*)NULL, &oldtic, &asksent))
 #endif
 		{
 			if (P_PartialAddGetStage() >= 0)
