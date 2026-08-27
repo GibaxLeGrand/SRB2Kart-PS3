@@ -1895,4 +1895,9 @@ boolean I_InitTcpNetwork(void)
 	return ret;
 }
 
+#ifndef NONET
+// Dead weight without networking, and not free: the stub calls gethostbyname(),
+// which on PS3 is the only thing pulling sys_net and cellSysmodule into the
+// import table, so lv2 has to resolve two extra PRX modules at process load.
 #include "i_addrinfo.c"
+#endif

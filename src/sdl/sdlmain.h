@@ -96,6 +96,13 @@ void I_GetConsoleEvents(void);
 
 void SDLforceUngrabMouse(void);
 
+#ifdef _PS3
+// Pad detection for the console, driven from I_OsPolling. The engine only ever
+// opens a controller from the use_joystick cvar callback, which fires once at
+// config load; pads that appear later need somebody to look for them.
+void PS3_PollPadHotplug(void);
+#endif
+
 // Needed for some WIN32 functions
 extern SDL_Window *window;
 

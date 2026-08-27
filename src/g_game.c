@@ -107,20 +107,8 @@ boolean runemeraldmanager = false;
 
 // menu demo things
 UINT8  numDemos      = 0; //3; -- i'm FED UP of losing my skincolour to a broken demo. change this back when we make new ones
-// 2026-08-26 -- PS3 experiment, temporary. The attract demo normally starts at
-// tic 770 (title screen at tic 140, + 525 delay + 105 idle), and that is where
-// RPCS3 dies, reproducibly, in three runs. Starting it at tic ~245 instead
-// tests whether the failure follows the demo transition or sits at a fixed
-// elapsed time / flip count, and shortens each test run by 15 seconds.
-// Set PS3_FAST_ATTRACT_DEMO back to 0 to restore stock timing.
-#define PS3_FAST_ATTRACT_DEMO 1
-#if defined(_PS3) && PS3_FAST_ATTRACT_DEMO
-UINT32 demoDelayTime = 2*TICRATE;
-UINT32 demoIdleTime  = 1*TICRATE;
-#else
 UINT32 demoDelayTime = 15*TICRATE;
 UINT32 demoIdleTime  = 3*TICRATE;
-#endif
 
 boolean nodrawers; // for comparative timing purposes
 boolean noblit; // for comparative timing purposes

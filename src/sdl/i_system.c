@@ -2179,6 +2179,196 @@ static int joy_open4(int joyindex)
 	}
 }
 
+#ifdef _PS3
+//
+// PS3_ProbePads -- added 2026-08-27, first step of controller support
+//
+// SRB2Kart drives all four players through SDL's GameController API alone:
+// I_GetJoystickEvents() and friends read SDL_GameControllerGetButton(), and
+// I_InitJoystick() binds a slot with SDL_GameControllerOpen(). A pad that SDL
+// only sees as a raw joystick therefore produces nothing whatsoever -- without
+// a mapping SDL_IsGameController() is false and the open fails, silently.
+//
+// PS3DK's SDL2 (2.0.13) does ship a PS3 backend: SDL_sysjoystick.o binds
+// ioPadInit/ioPadGetInfo/ioPadGetData and names pads "PS1LIGHT Controller".
+// Its SDL_PSL1GHT_JoystickDriver also carries a GetGamepadMapping entry, so
+// mappings should come from the backend rather than from SDL's GUID database
+// -- which would mean the four pads work out of the box. That is the claim
+// this report checks, on the emulator first and on hardware after.
+//
+// The four use_joystick cvars already default to 1/2/3/4 (d_netcmd.c), so no
+// configuration is needed as long as SDL enumerates four controllers.
+//
+// Consvar strings are NULL until the cvars are registered, which happens after
+// I_StartupSystem -- the first report is written before that.
+static const char *PS3_CvarStr(const consvar_t *cv)
+{
+	return cv->string ? cv->string : "(pas encore enregistre)";
+}
+
+static void PS3_ReportPads(const char *why)
+{
+	FILE *f;
+	int njoy, i;
+
+	f = fopen(PS3_DebugPath("psdebugP.txt"), "a");
+	if (!f)
+		return;
+
+	njoy = SDL_NumJoysticks();
+
+	fprintf(f, "\n===== %s =====\n", why);
+	fprintf(f, "SDL %d.%d.%d -- joystick=%s gamecontroller=%s\n",
+		SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL,
+		SDL_WasInit(SDL_INIT_JOYSTICK) ? "ok" : "ECHEC",
+		SDL_WasInit(SDL_INIT_GAMECONTROLLER) ? "ok" : "ECHEC");
+	fprintf(f, "SDL_NumJoysticks() = %d\n", njoy);
+
+	if (njoy <= 0)
+		fprintf(f, "  aucune manette vue par SDL -- SDL_GetError: %s\n",
+			SDL_GetError());
+
+	for (i = 0; i < njoy; i++)
+	{
+		SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(i);
+		const char *jname = SDL_JoystickNameForIndex(i);
+		SDL_bool isgc = SDL_IsGameController(i);
+		char guidstr[64];
+
+		guidstr[0] = '\0';
+		SDL_JoystickGetGUIDString(guid, guidstr, sizeof guidstr);
+
+		fprintf(f, "\nmanette %d:\n", i);
+		fprintf(f, "  nom joystick   : %s\n", jname ? jname : "(null)");
+		fprintf(f, "  GUID           : %s\n", guidstr);
+		fprintf(f, "  GameController : %s\n", isgc ? "OUI" : "NON");
+
+		if (isgc)
+		{
+			const char *cname = SDL_GameControllerNameForIndex(i);
+			char *map = SDL_GameControllerMappingForDeviceIndex(i);
+
+			fprintf(f, "  nom controller : %s\n", cname ? cname : "(null)");
+			fprintf(f, "  mapping        : %s\n", map ? map : "(aucun)");
+			if (map)
+				SDL_free(map);
+		}
+		else
+		{
+			// The interesting failure. Everything the game does with pads goes
+			// through the GameController layer, so this is where support stops.
+			fprintf(f, "  *** sans mapping, SDL_GameControllerOpen(%d) echouera"
+				" et cette manette restera muette ***\n", i);
+		}
+	}
+
+	fprintf(f, "\nslots: use_joystick=%s %s %s %s -- lies: %s %s %s %s\n",
+		PS3_CvarStr(&cv_usejoystick), PS3_CvarStr(&cv_usejoystick2),
+		PS3_CvarStr(&cv_usejoystick3), PS3_CvarStr(&cv_usejoystick4),
+		JoyInfo.dev ? "oui" : "non", JoyInfo2.dev ? "oui" : "non",
+		JoyInfo3.dev ? "oui" : "non", JoyInfo4.dev ? "oui" : "non");
+
+	fflush(f);
+	fclose(f);
+}
+
+static void PS3_ProbePads(void)
+{
+	FILE *f;
+
+	if (SDL_WasInit(SDL_INIT_JOYSTICK) == 0)
+		SDL_InitSubSystem(SDL_INIT_JOYSTICK);
+	if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0)
+		SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
+	// Start the log fresh; every later report appends to it.
+	f = fopen(PS3_DebugPath("psdebugP.txt"), "w");
+	if (f)
+		fclose(f);
+
+	PS3_ReportPads("demarrage (I_StartupSystem)");
+}
+
+//
+// PS3_PollPadHotplug -- called once per frame from I_OsPolling
+//
+// Measured under RPCS3, 2026-08-27, with a Qanba stick attached: enumeration at
+// I_StartupSystem time reports zero pads, and a pad appears about a second into
+// the game loop. So the startup report is simply too early to see anything, and
+// binding has to come from the hotplug path rather than from the config-load
+// call to I_InitJoystick().
+//
+// Upstream has a hotplug path that would do exactly this -- the
+// SDL_CONTROLLERDEVICEADDED case in i_video.c, which fixes up the four cvars
+// and then calls I_InitJoystickN(). It never fires here. Measured 2026-08-27:
+// SDL_NumJoysticks() goes 0 -> 1 while the slots stay unbound a full second
+// later, with I_GetEvent() draining the queue every frame in between. That is
+// consistent, because SDL_NumJoysticks() asks the driver for a live count
+// (SDL_SYS_JoystickGetCount) rather than reading anything the event queue
+// produced: the PSL1GHT backend updates its count but never announces the
+// arrival, so no CONTROLLERDEVICEADDED is ever posted.
+//
+// So bind here instead, assigning devices to slots in order. Setting .value
+// before the call is the part that matters: I_InitJoystickN() zeroes
+// cv_usejoystickN.value whenever it finds nothing -- which is what happened at
+// config-load time, before the pad appeared -- and never restores it from
+// .string, so every later call would open device -1 and give up.
+//
+void PS3_PollPadHotplug(void)
+{
+	static int countdown = 0;
+	static int lastseen = -1;
+	static int reportlate = 0;
+	int n;
+
+	if (--countdown > 0)
+		return;
+	countdown = 60; // roughly once a second at 60fps
+
+	SDL_JoystickUpdate();
+
+	n = SDL_NumJoysticks();
+
+	// Deliberately one tick behind the detection. SDL queues
+	// CONTROLLERDEVICEADDED, and I_GetEvent() only drains it later in the same
+	// frame, so a report taken at detection time would always show the slots
+	// still unbound and say nothing about whether binding worked.
+	if (reportlate)
+	{
+		reportlate = 0;
+		PS3_ReportPads("une seconde apres la detection");
+	}
+
+	if (n == lastseen)
+		return;
+
+	lastseen = n;
+	PS3_ReportPads(n > 0 ? "manette(s) detectee(s)" : "plus aucune manette");
+	reportlate = 1;
+
+	if (n <= 0)
+		return;
+
+	// Slot N takes device N, which is what the use_joystick cvars already
+	// default to (1/2/3/4 in d_netcmd.c). Only claim slots a device exists for;
+	// I_InitJoystickN() zeroes the cvar again for the ones left over, which is
+	// the correct state for an absent player.
+	if (n >= 1)
+		cv_usejoystick.value = 1;
+	if (n >= 2)
+		cv_usejoystick2.value = 2;
+	if (n >= 3)
+		cv_usejoystick3.value = 3;
+	if (n >= 4)
+		cv_usejoystick4.value = 4;
+
+	I_InitJoystick();
+	I_InitJoystick2();
+	I_InitJoystick3();
+	I_InitJoystick4();
+}
+#endif // _PS3
+
 //
 // I_InitJoystick
 //
@@ -3222,6 +3412,12 @@ INT32 I_StartupSystem(void)
 	 SDLlinked.major, SDLlinked.minor, SDLlinked.patch);
 	if (SDL_Init(0) < 0)
 		I_Error("SRB2: SDL System Error: %s", SDL_GetError()); //Alam: Oh no....
+#ifdef _PS3
+	// Earliest point where SDL works. Enumeration is all this needs, and doing
+	// it here means the report exists even when use_joystick is 0 and
+	// I_InitJoystick never runs.
+	PS3_ProbePads();
+#endif
 #ifndef NOMUMBLE
 	I_SetupMumble();
 #endif

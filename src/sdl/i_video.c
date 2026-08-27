@@ -1328,6 +1328,9 @@ void I_OsPolling(void)
 
 	if (consolevent)
 		I_GetConsoleEvents();
+#ifdef _PS3
+	PS3_PollPadHotplug();
+#endif
 	if (SDL_WasInit(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) == (SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER))
 	{
 		SDL_GameControllerUpdate();
