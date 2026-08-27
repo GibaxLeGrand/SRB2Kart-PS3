@@ -1838,7 +1838,6 @@ static void IdentifyVersion(void)
 	D_AddFile(va(pandf,srb2waddir,"patch.kart"), startupwadfiles);
 #endif
 
-#if !defined (HAVE_SDL) || defined (HAVE_MIXER)
 #define MUSICTEST(str) \
 	{\
 		const char *musicpath = va(pandf,srb2waddir,str);\
@@ -1848,10 +1847,24 @@ static void IdentifyVersion(void)
 		else if (ms == 0) \
 			I_Error("File "str" has been modified with non-music/sound lumps"); \
 	}
+#if !defined (HAVE_SDL) || defined (HAVE_MIXER)
 	MUSICTEST("sounds.kart")
 	MUSICTEST("music.kart")
-#undef MUSICTEST
+#elif defined (_PS3)
+	// 2026-08-27: with HAVE_SDL set and NOMIXER, the branch above is skipped
+	// entirely, so sounds.kart was never added to the startup list and every
+	// sfx lookup missed. That -- not the audio device -- is why the PS3 build
+	// was silent: I_StartupSound opens the port fine (48kHz, 256 samples per
+	// slice, "Sound module ready" on real hardware), and I_GetSfx() reads
+	// effects straight out of the WAD, so they only ever needed the file.
+	//
+	// music.kart is left out on purpose. I_LoadSong() and I_PlaySong() in
+	// sdl/sdl_sound.c are stubs returning false without SDL_mixer, so there is
+	// no music path to feed, and its 103MB of lumps would buy nothing on a
+	// 256MB console. Music needs a decoder first -- that is its own job.
+	MUSICTEST("sounds.kart")
 #endif
+#undef MUSICTEST
 }
 
 /* ======================================================================== */
