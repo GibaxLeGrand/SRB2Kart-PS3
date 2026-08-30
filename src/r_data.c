@@ -395,7 +395,7 @@ void R_LoadTextures(void)
 	INT32 i, k, w;
 	UINT16 j;
 	UINT16 texstart, texend, texturesLumpPos;
-	patch_t *patchlump;
+	patch_t patchheader;
 	texpatch_t *patch;
 	texture_t *texture;
 
@@ -545,10 +545,21 @@ void R_LoadTextures(void)
 					continue; // If it is then SKIP IT
 			}
 			if (w == 2 && j >= 860 && j <= 920)
-				ps3rd("T6c before W_CacheLumpNumPwad");
-			patchlump = W_CacheLumpNumPwad((UINT16)w, texstart + j, PU_CACHE);
+				ps3rd("T6c before W_ReadLumpHeaderPwad");
+			// 2026-08-30. Only width and height are wanted here, and they are the
+			// first 4 bytes of the lump. This used to cache the whole lump at
+			// PU_CACHE, which pinned all of textures.kart -- 176 MB -- for the
+			// rest of the run: PU_CACHE is tag 49, below PU_PURGELEVEL, so no
+			// purge can reach it, and the Z_Unlock() that was meant to release it
+			// is a no-op outside _NDS (z_zone.h:119). The heap probe measured
+			// 135 MB stuck there before the first level even loaded, out of the
+			// ~145 MB GameOS leaves the game on a 256 MB console.
+			// R_GenerateTexture caches the pixel data on demand later anyway.
+			memset(&patchheader, 0, sizeof patchheader);
+			W_ReadLumpHeaderPwad((UINT16)w, texstart + j, &patchheader,
+				4 * sizeof (INT16), 0); // width, height, leftoffset, topoffset
 			if (w == 2 && j >= 860 && j <= 920)
-				ps3rd("T6d after W_CacheLumpNumPwad");
+				ps3rd("T6d after W_ReadLumpHeaderPwad");
 
 			//CONS_Printf("\n\"%s\" is a single patch, dimensions %d x %d",W_CheckNameForNumPwad((UINT16)w,texstart+j),patchlump->width, patchlump->height);
 			texture = textures[i] = Z_Calloc(sizeof(texture_t) + sizeof(texpatch_t), PU_STATIC, NULL);
@@ -557,8 +568,8 @@ void R_LoadTextures(void)
 			M_Memcpy(texture->name, W_CheckNameForNumPwad((UINT16)w, texstart + j), sizeof(texture->name));
 			if (w == 2 && j >= 860 && j <= 920)
 				ps3rd("T6e after M_Memcpy name");
-			texture->width = SHORT(patchlump->width);
-			texture->height = SHORT(patchlump->height);
+			texture->width = SHORT(patchheader.width);
+			texture->height = SHORT(patchheader.height);
 			if (w == 2 && j >= 860 && j <= 920)
 				ps3rd("T6f after width/height read");
 			texture->patchcount = 1;
@@ -571,7 +582,7 @@ void R_LoadTextures(void)
 			patch->wad = (UINT16)w;
 			patch->lump = texstart + j;
 
-			Z_Unlock(patchlump);
+			// (was Z_Unlock(patchlump) -- nothing is cached here any more)
 
 			k = 1;
 			while (k << 1 <= texture->width)

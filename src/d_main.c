@@ -917,6 +917,14 @@ static u64 ps3prof_tbfreq = 79800000ULL;   // replaced with the real value at pr
 //     the question it was built to answer came back negative.
 //
 // Both keep their bits, so either is one word away from coming back.
+//
+// 2026-08-30: HEAPBEAT was switched back on for one measurement run and is off
+// again. What it answered, under RPCS3, after the R_LoadTextures fix in
+// r_data.c: PU_CACHE holds 597K at level load, climbs once rendering starts and
+// then sits on a plateau at 2921K, against 138055K before the fix. Zone peak
+// went from 175MB to 10.7MB. That run ended at 37s because the window was
+// closed by hand, not by a fault -- the probe is off again on its own merits
+// (9-13ms per beat, measured on the console 2026-08-28), not because of it.
 int ps3_debugtrace = PS3TRACE_DISPLAY_SYNC | PS3TRACE_STATE | PS3TRACE_MARK;
 
 // 2026-08-26 -- bisection knobs, temporary, NOT shipping options. Set both
