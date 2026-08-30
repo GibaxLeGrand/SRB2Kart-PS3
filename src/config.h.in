@@ -43,8 +43,31 @@
  * Last updated 2022 / 11 / 01 - Kart v1.6 - gfx.kart, maps.kart
  */
 
+// 2026-08-30 -- the PS3 build ships its own srb2.srb and chars.kart. Every Ogg
+// Vorbis lump in them is re-encoded from 44100 Hz to 48000 Hz, the rate the
+// console's audio port is fixed at (PS3DK's audio/audio.h). Any other rate makes
+// SDL_mixer build a resampling SDL_AudioStream per track (music_ogg.c:212), and
+// SDL 2.0.13's SDL_ResampleAudioStream then reads unmapped memory on this
+// target -- it killed the process one second into the intro, twice, at the same
+// faulting address. Only audio lumps differ: the other 6211 lumps of srb2.srb
+// and 461 of chars.kart are copied byte for byte, so W_VerifyFileMD5 still does
+// its job against real corruption. Re-encoded files live in assets_48k/.
+//
+// music.kart, sounds.kart and bonuschars.kart carry the bulk of the audio and
+// are re-encoded too, but they are not on the verified list below, so they need
+// no hash here.
+//
+// Note for when NONET goes away: these hashes are also what netplay uses to
+// check that clients hold identical assets, so a PS3 can only ever play with
+// another PS3. It could not have played with a PC anyway -- the content itself
+// differs.
+
 // Base SRB2 hashes
+#ifdef _PS3
+#define ASSET_HASH_SRB2_SRB      "6318c1234c7c7ff9f70cd1a55291a05b"
+#else
 #define ASSET_HASH_SRB2_SRB      "c1b9577687f8a795104aef4600720ea7"
+#endif
 #ifdef USE_PATCH_DTA
 #define ASSET_HASH_PATCH_DTA     "b04fd9624bfd94dc96dcf4f400f7deb4"
 #endif
@@ -52,7 +75,11 @@
 // SRB2Kart-specific hashes
 #define ASSET_HASH_GFX_KART      "06f86ee16136eb8a7043b15001797034"
 #define ASSET_HASH_TEXTURES_KART "abb53d56aba47c3a8cb0f764da1c8b80"
+#ifdef _PS3
+#define ASSET_HASH_CHARS_KART    "511561b6ce56ca8239dd3d1513dab2e5"
+#else
 #define ASSET_HASH_CHARS_KART    "e2c428347dde52858a3dacd29fc5b964"
+#endif
 #define ASSET_HASH_MAPS_KART     "d051e55141ba736582228c456953cd98"
 #ifdef USE_PATCH_KART
 #define ASSET_HASH_PATCH_KART    "00000000000000000000000000000000"
