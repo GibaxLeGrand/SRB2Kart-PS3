@@ -3600,6 +3600,13 @@ boolean P_CameraThinker(player_t *player, camera_t *thiscam, boolean resetcalled
 	return false;
 }
 
+#ifdef _PS3
+// 2026-08-30, TEMPORAIRE -- compteurs pour le sprite fige. Lus par la sonde
+// de p_user.c. A retirer avec elle.
+INT32 ps3_animonly_hits = 0;
+INT32 ps3_animonly_tics = 0;
+#endif
+
 //
 // P_PlayerMobjThinker
 //
@@ -3753,6 +3760,18 @@ static void P_PlayerMobjThinker(mobj_t *mobj)
 animonly:
 	// cycle through states,
 	// calling action functions at transitions
+#ifdef _PS3
+	// 2026-08-30, TEMPORAIRE. Le sprite du joueur reste fige : la sonde de
+	// p_user.c montre mobj->tics bloque a 1 et jamais d'etat pair, donc la
+	// machine a etats n'avance pas -- alors que le kart bouge, ce qui prouve
+	// que cette fonction s'execute. On compte les passages ici et l'etat des
+	// tics avant decrementation pour lever la contradiction.
+	if (mobj->player)
+	{
+		ps3_animonly_hits++;
+		ps3_animonly_tics = mobj->tics;
+	}
+#endif
 	if (mobj->tics != -1)
 	{
 		mobj->tics--;
