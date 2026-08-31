@@ -31,6 +31,16 @@ name: PS3 build
 # - This never touches RPCS3 or real hardware. It proves the tree compiles
 #   and packages; it says nothing about whether the game runs correctly
 #   (see the known sprite-freeze regression tracked in README.md).
+#
+# - The toolchain is extracted to the exact absolute path it was built at
+#   (/home/comodore/PS3DK/stage/ps3dev, not $HOME) because portlibs (SDL2,
+#   SDL2_mixer, libvorbis...) are not relocatable: their -config scripts,
+#   .pc/.la/.cmake files bake in the prefix they were built with. A first
+#   CI run extracted to $HOME (/home/runner/...) and every portlib config
+#   file still pointed at /home/comodore -- SDL.h wasn't found even though
+#   it was sitting right there under the runner's own $HOME. Matching the
+#   build path sidesteps patching every one of those files individually.
+#   See ps3/TOOLCHAIN.md.
 
 on:
   push:
@@ -55,6 +65,10 @@ permissions:
 env:
   TOOLCHAIN_TAG: toolchain-v1
   TOOLCHAIN_ASSET: ps3dk-toolchain-linux-x86_64.tar.xz
+  # Must match the absolute path the toolchain was built at -- see the note
+  # above and ps3/TOOLCHAIN.md. Not $HOME: that's /home/runner on this
+  # runner image, not /home/comodore.
+  PS3DEV: /home/comodore/PS3DK/stage/ps3dev
 
 jobs:
   build:
@@ -63,11 +77,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Create /home/comodore
+        run: |
+          sudo mkdir -p /home/comodore/PS3DK/stage
+          sudo chown -R "$(id -u):$(id -g)" /home/comodore
+
       - name: Cache PS3DK toolchain
         id: cache-toolchain
         uses: actions/cache@v4
         with:
-          path: ~/PS3DK/stage/ps3dev
+          path: ${{ env.PS3DEV }}
           key: ps3dk-toolchain-${{ env.TOOLCHAIN_TAG }}
 
       - name: Download prebuilt PS3DK toolchain
@@ -76,23 +95,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          mkdir -p ~/PS3DK/stage
           gh release download "$TOOLCHAIN_TAG" \
             --repo "${{ github.repository }}" \
             --pattern "$TOOLCHAIN_ASSET" \
             --output /tmp/toolchain.tar.xz
-          tar -C ~/PS3DK/stage -xf /tmp/toolchain.tar.xz
-          test -x ~/PS3DK/stage/ps3dev/ppu/bin/powerpc64-ps3-elf-gcc
+          tar -C /home/comodore/PS3DK/stage -xf /tmp/toolchain.tar.xz
+          test -x "$PS3DEV/ppu/bin/powerpc64-ps3-elf-gcc"
 
       - name: Build srb2kart_ps3.elf
         run: |
-          export PS3DEV="$HOME/PS3DK/stage/ps3dev"
           export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH"
           bash ps3/build_srb2kart_ps3.sh
 
       - name: Package LIGHT eboot .pkg
         run: |
-          export PS3DEV="$HOME/PS3DK/stage/ps3dev"
           export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH"
           LIGHT=1 bash ps3/package_srb2kart_pkg.sh
 

@@ -42,3 +42,29 @@ The tarball is `stage/ps3dev` only — the `$PS3DEV` install prefix (PPU/SPU
 cross-compilers, PSL1GHT, portlibs, host tools like `make_self_npdrm` /
 `sfo` / `pkg` / `sprxlinker`). Not the PS3DK source tree, not build
 directories.
+
+## The path has to match: `/home/comodore/PS3DK/stage/ps3dev`
+
+Portlibs (SDL2, SDL2_mixer, libvorbis...) are built as ordinary autotools
+packages with `--prefix=$PS3DEV`, and that prefix ends up hardcoded —
+verbatim — into their `-config` scripts (`sdl2-config`), pkg-config `.pc`
+files, libtool `.la` files, and CMake config files. They are **not
+relocatable**. Extract the tarball anywhere other than the exact path it
+was built at and those files still point at the old location.
+
+The first CI run extracted to `$HOME` (`/home/runner/PS3DK/...` on a
+GitHub-hosted runner) and failed on `SDL.h: No such file or directory` —
+`sdl2-config --cflags` was still emitting
+`-I/home/comodore/PS3DK/stage/ps3dev/portlibs/ppu/include/SDL2`, because
+that is where the toolchain was built (a WSL2 Ubuntu-22.04 box, user
+`comodore`). The header was sitting right there under the runner's own
+`$HOME`; the stale path just never found it.
+
+Fix: CI creates `/home/comodore` itself (`sudo mkdir` + `chown`, since
+`/home` on the runner is root-owned and that user doesn't otherwise exist)
+and extracts there, matching the build path exactly instead of patching
+every config file that embeds it. **If you ever rebuild the toolchain on a
+machine where the PS3DK checkout lives somewhere other than
+`/home/comodore/PS3DK`, either rebuild it under that exact path first, or
+update every hardcoded reference before tarring — and update the `PS3DEV`
+env var in `.github/workflows/ps3-ci.yml` to match.**
