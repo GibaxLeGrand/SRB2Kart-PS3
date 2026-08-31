@@ -21,3 +21,12 @@ Win32_LIB_ASM_Release
 /.vs
 /debian
 /assets/debian
+
+# PS3 port build artifacts (see ps3/README.md) -- rebuilt by
+# ps3/build_srb2kart_ps3.sh / ps3/package_srb2kart_pkg.sh, not committed.
+/ps3/ps3-compat/*.o
+/ps3/ps3-compat/*.a
+/pkgstage/
+/pkgstage_eboot/
+/srb2kart_ps3.pkg
+/srb2kart_ps3_eboot.pkg

@@ -1,5 +1,9 @@
 # SRB2Kart
 
+> **This fork adds a PlayStation 3 homebrew port.** See [`ps3/README.md`](ps3/README.md)
+> for status, build instructions, and the CI setup. Everything below this
+> notice is upstream's own README.
+
 [SRB2Kart](https://srb2.org/mods/) is a kart racing mod based on the 3D Sonic the Hedgehog fangame [Sonic Robo Blast 2](https://srb2.org/), based on a modified version of [Doom Legacy](http://doomlegacy.sourceforge.net/).
 
 ## Dependencies

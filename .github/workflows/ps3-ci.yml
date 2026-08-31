@@ -1,0 +1,107 @@
+name: PS3 build
+
+# Compiles srb2kart_ps3.elf against PS3DK and packages a LIGHT (eboot-only)
+# .pkg on every push. 2026-08-31.
+#
+# What this can and can't do, and why:
+#
+# - PS3DK itself (the PPU/SPU cross toolchain -- GCC 12.4.0 PPU, GCC 9.5.0
+#   SPU, PSL1GHT, portlibs) is NOT built from source here. Its only public
+#   repo is git.rpcs3.net/rpcs3/PS3DK, which blocks automated/bot HTTP
+#   clients -- a GitHub-hosted runner hits the same wall we did fetching it
+#   for local dev. Even without that, a from-source bootstrap is a
+#   multi-hour job (GCC + binutils + newlib + PSL1GHT + portlibs), which is
+#   its own reason not to run it on every push.
+#
+#   Instead, this workflow downloads a toolchain tarball built once on a
+#   dev machine and published as a release asset on THIS repo (release tag
+#   in TOOLCHAIN_TAG below, asset ps3dk-toolchain-linux-x86_64.tar.xz) and
+#   caches the extracted copy across runs. Rebuilding/republishing that
+#   asset is a manual step for whoever maintains the toolchain version this
+#   points at -- see ps3/TOOLCHAIN.md.
+#
+# - The .pkg this produces is LIGHT: EBOOT.BIN + icon + PARAM.SFO, no game
+#   data. srb2.srb/gfx.kart/textures.kart/etc. are SRB2Kart's own game
+#   assets (~500MB), distributed by the Kart Krew separately from source,
+#   and are deliberately not vendored into this repo (see README.md). A
+#   LIGHT .pkg installs onto a console that already has a full data install
+#   -- that's what package_srb2kart_pkg.sh's LIGHT=1 mode is for, and it's
+#   the only mode CI can produce.
+#
+# - This never touches RPCS3 or real hardware. It proves the tree compiles
+#   and packages; it says nothing about whether the game runs correctly
+#   (see the known sprite-freeze regression tracked in README.md).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ps3/**"
+      - "src/**"
+      - ".github/workflows/ps3-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ps3/**"
+      - "src/**"
+      - ".github/workflows/ps3-ci.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Bump TOOLCHAIN_TAG here (and re-run) when a new toolchain tarball is
+# published under a new release tag -- see ps3/TOOLCHAIN.md.
+env:
+  TOOLCHAIN_TAG: toolchain-v1
+  TOOLCHAIN_ASSET: ps3dk-toolchain-linux-x86_64.tar.xz
+
+jobs:
+  build:
+    name: Compile + package (LIGHT eboot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache PS3DK toolchain
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/PS3DK/stage/ps3dev
+          key: ps3dk-toolchain-${{ env.TOOLCHAIN_TAG }}
+
+      - name: Download prebuilt PS3DK toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          mkdir -p ~/PS3DK/stage
+          gh release download "$TOOLCHAIN_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "$TOOLCHAIN_ASSET" \
+            --output /tmp/toolchain.tar.xz
+          tar -C ~/PS3DK/stage -xf /tmp/toolchain.tar.xz
+          test -x ~/PS3DK/stage/ps3dev/ppu/bin/powerpc64-ps3-elf-gcc
+
+      - name: Build srb2kart_ps3.elf
+        run: |
+          export PS3DEV="$HOME/PS3DK/stage/ps3dev"
+          export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH"
+          bash ps3/build_srb2kart_ps3.sh
+
+      - name: Package LIGHT eboot .pkg
+        run: |
+          export PS3DEV="$HOME/PS3DK/stage/ps3dev"
+          export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH"
+          LIGHT=1 bash ps3/package_srb2kart_pkg.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: srb2kart-ps3-${{ github.sha }}
+          path: |
+            src/bin/Release/srb2kart_ps3.elf
+            srb2kart_ps3_eboot.pkg
+          if-no-files-found: error
+          retention-days: 14
