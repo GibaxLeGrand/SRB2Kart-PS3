@@ -117,7 +117,7 @@ jobs:
         with:
           name: srb2kart-ps3-${{ github.sha }}
           path: |
-            src/bin/Release/srb2kart_ps3.elf
+            bin/Release/srb2kart_ps3.elf
             srb2kart_ps3_eboot.pkg
           if-no-files-found: error
           retention-days: 14

@@ -24,7 +24,7 @@ export PATH="$PS3DEV/portlibs/ppu/bin:$PATH"
 cd "$REPO_ROOT/src" || exit 1
 
 # Force the link step to re-run; the objects themselves are unchanged.
-rm -f "$REPO_ROOT/src/bin/Release/srb2kart_ps3.elf"
+rm -f "$REPO_ROOT/bin/Release/srb2kart_ps3.elf"
 
 make SDL=1 PS3GCM=1 PREFIX=powerpc64-ps3-elf NONX86=1 NOASM=1 NOHW=1 NOMIXER=1 NONET=1 NOPNG=1 \
      SDL_CONFIG=sdl2-config \
