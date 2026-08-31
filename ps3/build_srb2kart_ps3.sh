@@ -20,6 +20,11 @@ fi
 : "${PS3DEV:?PS3DEV not set -- source PS3DK scripts/env.sh, or export PS3DEV yourself}"
 
 export PATH="$PS3DEV/portlibs/ppu/bin:$PATH"
+# The PPU GCC driver reads this via getenv() at link time (LIB_LV2_SPEC,
+# baked into the cross-compiler's own specs) to find libsysbase/liblv2/etc.
+# Missing it is a link-time "fatal error: environment variable 'PS3DK' not
+# defined", not a compile error, so it slips past every .c file first.
+export PS3DK="$PS3DEV/ps3dk"
 PREFIX=powerpc64-ps3-elf
 
 # ps3-compat: PSL1GHT-style sysUtil callback forwarders that PS3DK's own
