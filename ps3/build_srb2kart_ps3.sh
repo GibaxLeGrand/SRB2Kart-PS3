@@ -17,7 +17,7 @@ if [ -z "$PS3DEV" ] && [ -f "$HOME/PS3DK/scripts/env.sh" ]; then
 	# shellcheck disable=SC1091
 	source "$HOME/PS3DK/scripts/env.sh"
 fi
-: "${PS3DEV:?PS3DEV not set -- source PS3DK's scripts/env.sh, or export PS3DEV yourself}"
+: "${PS3DEV:?PS3DEV not set -- source PS3DK scripts/env.sh, or export PS3DEV yourself}"
 
 export PATH="$PS3DEV/portlibs/ppu/bin:$PATH"
 PREFIX=powerpc64-ps3-elf
