@@ -17,6 +17,7 @@
 #include "doomdef.h"
 #include "i_system.h"
 #include "d_event.h"
+#include "d_main.h" // PS3_DebugPath -- see the note in the _PS3 block below
 #include "d_net.h"
 #include "g_game.h"
 #include "p_local.h"
@@ -68,6 +69,10 @@ static void P_NukeAllPlayers(player_t *player);
 // tics (~25 s) pour que le fichier reste lisible, et seulement pour le joueur
 // que l'on regarde. A retirer une fois la cause du sprite fige etablie.
 #include <stdio.h>
+// PS3_DebugPath vient de d_main.h, inclus en tete de fichier. Il y manquait :
+// la fonction etait declaree implicitement, rendait un `int`, et son
+// `const char *` arrivait TRONQUE a 32 bits dans fopen. Ca ne marchait que par
+// chance -- les adresses PS3 tiennent dans les 4 premiers Go.
 extern INT32 ps3_animonly_hits;   // p_mobj.c, incremente a l'etiquette animonly
 extern INT32 ps3_animonly_tics;   // valeur de mobj->tics juste avant decrementation
 static void PS3_AnimProbe(player_t *player)
