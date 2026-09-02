@@ -17,7 +17,7 @@
 #include "doomdef.h"
 #include "i_system.h"
 #include "d_event.h"
-#include "d_main.h" // PS3_DebugPath -- see the note in the _PS3 block below
+#include "d_main.h" // PS3_DebugPath, if anything here needs to log again
 #include "d_net.h"
 #include "g_game.h"
 #include "p_local.h"
@@ -61,56 +61,6 @@
 
 #if 0
 static void P_NukeAllPlayers(player_t *player);
-#endif
-
-#ifdef _PS3
-// 2026-08-30, TEMPORAIRE -- sonde d'animation du joueur local. Voir le site
-// d'appel dans P_MovePlayer pour le pourquoi. Une ligne par tic, bornee a 900
-// tics (~25 s) pour que le fichier reste lisible, et seulement pour le joueur
-// que l'on regarde. A retirer une fois la cause du sprite fige etablie.
-#include <stdio.h>
-// PS3_DebugPath vient de d_main.h, inclus en tete de fichier. Il y manquait :
-// la fonction etait declaree implicitement, rendait un `int`, et son
-// `const char *` arrivait TRONQUE a 32 bits dans fopen. Ca ne marchait que par
-// chance -- les adresses PS3 tiennent dans les 4 premiers Go.
-extern INT32 ps3_animonly_hits;   // p_mobj.c, incremente a l'etiquette animonly
-extern INT32 ps3_animonly_tics;   // valeur de mobj->tics juste avant decrementation
-static void PS3_AnimProbe(player_t *player)
-{
-	static INT32 written = 0;
-	static tic_t lasttic = 0;
-	FILE *f;
-
-	if (player != &players[displayplayers[0]])
-		return;              // seulement le joueur affiche
-	if (gametic == lasttic)
-		return;              // une seule ligne par tic
-	lasttic = gametic;
-	if (written >= 900)
-		return;
-
-	f = fopen(PS3_DebugPath("psdebugX.txt"), "a");
-	if (!f)
-		return;
-
-	fprintf(f,
-		"tic=%-6u speed=%-8d state=%-5d tics=%-4d sprite=%-4d frame=%-4u "
-		"panim=%d mom=(%d,%d) drift=%d spinout=%d anim_hits=%d anim_tics=%d\n",
-		(unsigned)gametic,
-		(int)player->speed,
-		(int)(player->mo->state - states),
-		(int)player->mo->tics,
-		(int)player->mo->sprite,
-		(unsigned)player->mo->frame,
-		(int)player->panim,
-		(int)player->mo->momx, (int)player->mo->momy,
-		(int)player->kartstuff[k_drift],
-		(int)player->kartstuff[k_spinouttimer],
-		(int)ps3_animonly_hits,
-		(int)ps3_animonly_tics);
-	fclose(f);
-	written++;
-}
 #endif
 
 //
@@ -5891,17 +5841,6 @@ static void P_MovePlayer(player_t *player)
 		else
 			player->frameangle = player->mo->angle;
 	}
-
-#ifdef _PS3
-	// 2026-08-30, TEMPORAIRE. Le sprite du joueur local reste fige pendant que
-	// le kart roule et que les autres karts s'animent -- et uniquement dans le
-	// build avec SDL_mixer, pas dans le temoin NOMIXER. K_KartMoveAnimation ne
-	// change d'etat que lorsqu'on sort de la plage visee, et c'est ensuite
-	// mobj->tics qui fait defiler les frames. On journalise donc les trois
-	// grandeurs qui decident : la vitesse, l'etat, et le compteur de tics.
-	// A retirer une fois la cause trouvee.
-	PS3_AnimProbe(player);
-#endif
 
 	player->mo->movefactor = FRACUNIT; // We're not going to do any more with this, so let's change it back for the next frame.
 
