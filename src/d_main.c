@@ -1217,6 +1217,40 @@ static unsigned int ps3state_frame_us = 0;
 #define PS3_CODE_LO 0x00010000u
 #define PS3_CODE_HI 0x003a0000u
 
+// 2026-09-02 -- THESE GUARDS NO LONGER SKIP ANYTHING BY DEFAULT.
+//
+// They used to return 1 on a suspicious pointer, and all fifteen call sites
+// are shaped `if (!PS3_BadAction(...)) <the call>;`, so returning 1 meant the
+// call did not happen: a state action, a spawn function, or -- in P_RunThinkers
+// -- an entire thinker, silently skipped.
+//
+// Every one of those sites is inside the simulation, reachable from P_Ticker.
+// SRB2Kart's netcode is deterministic lockstep: every peer replays the game
+// from inputs alone and must reach a bit-identical result. A guard that fires
+// on one machine and not another is therefore a desync generator, and a
+// non-deterministic one. The PS Vita port learned this the expensive way and
+// now refuses to fix even an obvious off-by-one in K_CheckSpectateStatus,
+// because correcting it desynced every online game.
+//
+// It is also simply the wrong trade now. The crash these were built to contain
+// was found and fixed by -fno-jump-tables (14bddf13); they have not earned
+// their divergence since. And between the two failure modes, for lockstep,
+// crashing is the better one: a crash is loud, local and debuggable, while a
+// skipped thinker is a silent wrong answer that only shows up as "synch
+// failure" on someone else's console.
+//
+// So by default they are purely observational -- they still log the anomaly,
+// then return 0 and let the call happen exactly as upstream would. Build with
+// -DPS3_GUARDS_SKIP to get the old containing behaviour back for a diagnosis
+// session; never ship it, and never go online with it.
+#ifdef PS3_GUARDS_SKIP
+#define PS3_GUARD_VERDICT 1
+#define PS3_GUARD_WORD    "skipped"
+#else
+#define PS3_GUARD_VERDICT 0
+#define PS3_GUARD_WORD    "called anyway"
+#endif
+
 // 2026-08-27 -- the same pointer sanity as PS3_BadAction, minus the state
 // number, for indirect calls that are not state actions. P_RunThinkers is the
 // one that matters: thinker_t.function.acp1 is called directly for every live
@@ -1241,13 +1275,13 @@ int PS3_BadFunc(const char *where, void *fn)
 	if (reported < 24)
 	{
 		reported++;
-		snprintf(line, sizeof line, "*** BAD CALL *** %s: fn=%08x -- %s (skipped)",
-			where, (unsigned)a, why);
+		snprintf(line, sizeof line, "*** BAD CALL *** %s: fn=%08x -- %s (%s)",
+			where, (unsigned)a, why, PS3_GUARD_WORD);
 		PS3_Mark(line);
 		fprintf(stderr, "[PS3] %s\n", line);
 	}
 
-	return 1;
+	return PS3_GUARD_VERDICT;
 }
 
 int PS3_BadAction(const char *where, INT32 statenum, void *fn)
@@ -1272,13 +1306,13 @@ int PS3_BadAction(const char *where, INT32 statenum, void *fn)
 	if (reported < 24)
 	{
 		reported++;
-		snprintf(line, sizeof line, "*** BAD ACTION CALL *** %s: state=%d fn=%08x -- %s (skipped)",
-			where, (int)statenum, (unsigned)a, why);
+		snprintf(line, sizeof line, "*** BAD ACTION CALL *** %s: state=%d fn=%08x -- %s (%s)",
+			where, (int)statenum, (unsigned)a, why, PS3_GUARD_WORD);
 		PS3_Mark(line);
 		fprintf(stderr, "[PS3] %s\n", line);
 	}
 
-	return 1;
+	return PS3_GUARD_VERDICT;
 }
 
 // 2026-08-26 -- debug files follow srb2home instead of a hardcoded path.

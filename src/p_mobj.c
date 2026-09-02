@@ -10986,7 +10986,21 @@ void P_MovePlayerToSpawn(INT32 playernum, mapthing_t *mthing)
 			if (p->kartstuff[k_respawn])
 				z += 128*mapobjectscale;
 
-#ifdef _PS3
+#if defined(_PS3) && defined(PS3_LOADPROBE)
+			// 2026-09-02 -- OFF unless PS3_LOADPROBE is defined.
+			//
+			// The simulation half of this was already inert: PS3_NO_SPAWN_FALL
+			// is 0, so the `z = floor` below was compiled out and player spawn
+			// height has been stock all along. What remained was a PS3_Mark per
+			// player spawn -- about 903us each, on the level-load path -- for
+			// an experiment that has been answered. The theory it was testing
+			// (that the spawn drop tripped the level-load crash) was wrong; the
+			// crash was MAXVIDWIDTH (f5f14786) and -fno-jump-tables (14bddf13).
+			//
+			// Kept rather than deleted because it is a good A/B lever if spawn
+			// height is ever suspected again. If you set PS3_NO_SPAWN_FALL to 1
+			// you ARE changing the simulation -- diagnosis only, never online.
+			//
 			// 2026-08-27, TEMPORARY EXPERIMENT. Alex's theory: the demo runs
 			// that die during level load do so because the player spawns a
 			// little above the floor, falls, and that first vertical movement

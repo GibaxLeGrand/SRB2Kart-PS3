@@ -1004,7 +1004,22 @@ static void P_LoadThings(void)
 
 	mt = mapthings;
 	numhuntemeralds = 0;
-#ifdef _PS3
+#if defined(_PS3) && defined(PS3_LOADPROBE)
+	// 2026-09-02 -- OFF unless PS3_LOADPROBE is defined, and it should stay off.
+	// Two reasons, in order of seriousness:
+	//
+	// 1. IT DIVERGED THE SIMULATION. The range checks in the loop below end in
+	//    `continue`, which skips the map thing outright -- the object never
+	//    spawns. The netcode is deterministic lockstep, so an object present on
+	//    one peer and absent on another is a desync, and a silent one.
+	// 2. It was not free either. R_PointInSubsector is a BSP walk and this ran
+	//    an extra one for EVERY map thing, then wrote a PS3_Mark every 64 --
+	//    and a PS3_Mark costs roughly 903us.
+	//
+	// It has nothing left to catch in any case: the level-load crash it was
+	// bisecting was found, and fixed by MAXVIDWIDTH (f5f14786) and
+	// -fno-jump-tables (14bddf13).
+	//
 	// 2026-08-26 -- two consecutive runs died between the H8 and H9 heap
 	// probes, so the failure is inside this loop or P_ResetDynamicSlopes just
 	// above it. One line every 64 things narrows it to a 64-thing window at a
@@ -1024,7 +1039,12 @@ static void P_LoadThings(void)
 	for (i = 0; i < nummapthings; i++, mt++)
 	{
 		sector_t *mtsector;
-#ifdef _PS3
+#if defined(_PS3) && defined(PS3_LOADPROBE)
+		// NOTE (2026-09-02): the two `continue` statements below are why this
+		// whole block is now behind PS3_LOADPROBE -- see P_LoadThings above.
+		// If you turn it back on, remember you are no longer bit-identical to
+		// upstream and must not go online with that build.
+		//
 		// 2026-08-27 -- one line per thing now, not one per 64. Seven runs out
 		// of eight die inside this loop, and the two dereferences below are the
 		// only wild ones on the path: R_PointInSubsector walks the BSP, and
