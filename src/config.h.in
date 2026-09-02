@@ -57,10 +57,23 @@
 // are re-encoded too, but they are not on the verified list below, so they need
 // no hash here.
 //
-// Note for when NONET goes away: these hashes are also what netplay uses to
-// check that clients hold identical assets, so a PS3 can only ever play with
-// another PS3. It could not have played with a PC anyway -- the content itself
-// differs.
+// 2026-09-02 -- CORRECTION. An earlier note here claimed these hashes were also
+// what netplay compares, and concluded a PS3 could only ever play with another
+// PS3. That is wrong, and it was blocking the online work for no reason. These
+// hashes feed W_VerifyFileMD5 only, which is a *local* integrity check run at
+// startup. Netplay compares wadfiles[i]->md5sum, computed at load time, and
+// only for files past mainwads that are "important" -- see PutFileNeeded in
+// d_netfil.c, which starts at mainwads+1 and then skips anything !important.
+// "important" is !W_VerifyNMUSlumps(), i.e. false for a file holding nothing
+// but music and sound lumps. So:
+//
+//   srb2.srb, chars.kart  -- mainwads, never sent.               OK
+//   sounds.kart, music.kart -- not important, explicitly skipped. OK
+//   bonuschars.kart -- holds characters, so it IS compared.       BLOCKS
+//
+// bonuschars.kart is therefore the only re-encoded file that stops us joining a
+// vanilla server, and only when it is loaded. Ship its original audio lumps, or
+// leave it out when going online.
 
 // Base SRB2 hashes
 #ifdef _PS3
