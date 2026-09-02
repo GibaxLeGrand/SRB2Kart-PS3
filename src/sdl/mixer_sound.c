@@ -171,24 +171,7 @@ void I_StartupSound(void)
 	Mix_Init(MIX_INIT_FLAC|MIX_INIT_MOD|MIX_INIT_MP3|MIX_INIT_OGG);
 #endif
 
-#ifdef _PS3
-	// 2026-08-30. Ask for the rate the hardware actually runs at. The PS3 audio
-	// port is fixed at 48000 Hz (PS3DK's audio/audio.h), and SDL_mixer builds an
-	// SDL_AudioStream per track from the file's rate to the mixer's rate
-	// (music_ogg.c:212). At 44100 that stream resamples, and SDL 2.0.13's
-	// SDL_ResampleAudioStream reads unmapped memory and kills the process one
-	// second into the intro -- reproduced twice at the same faulting address,
-	// 0x20474958, with the resampler's own filter table in r6.
-	//
-	// The game's Ogg lumps are re-encoded to 48000 to match (assets_48k/). With
-	// content, mixer and hardware all on one rate, no resampler is ever built.
-	// This is why neither reference port hits it: dragonfly-quake-ps3 sets
-	// shm->speed = 48000 in snd_ps3.c, IoQuake3-PS3 boots with "+set s_khz 48".
-	// It also hands the PPE back the cycles real-time resampling was costing.
-	if (Mix_OpenAudio(48000, AUDIO_S16SYS, 2, 2048) < 0)
-#else
 	if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 2048) < 0)
-#endif
 	{
 		CONS_Alert(CONS_ERROR, "Error starting SDL_Mixer: %s\n", Mix_GetError());
 		// call to start audio failed -- we do not have it
