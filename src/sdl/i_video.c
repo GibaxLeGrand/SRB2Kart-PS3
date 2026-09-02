@@ -2204,8 +2204,25 @@ void I_StartupGraphics(void)
 	// every output row held two game rows side by side, so the picture came out
 	// duplicated horizontally and squashed vertically. Same symptom as the
 	// abandoned 640x400 attempt of 26/08.
+	//
+	// 2026-09-02 -- narrowed to the SOFTWARE renderer. With render_opengl,
+	// SDLSetMode() (called by VID_SetMode() just above) already ran
+	// OglSdlSurface(), which created a PSGL device sized for real output and
+	// set realwidth/realheight to match. Forcing vid.width/height back to
+	// PS3_RENDER_W/H here -- and, below, calling PS3GCM_VideoInit() -- would
+	// initialize the raw cellGcm backend and re-touch the RSX display buffer
+	// on top of the PSGL device that was just created: two owners of the same
+	// hardware in the same process. This is what actually crashed the first
+	// OpenGL build (A6): D_SRB2Main completed normally, because PSGL's own
+	// init never faults, and the corrupted RSX state only brought the process
+	// down later, past the last checkpoint any trace file had reached.
+#ifdef HWRENDER
+	if (rendermode != render_opengl)
+#endif
+	{
 	vid.width = PS3_RENDER_W;
 	vid.height = PS3_RENDER_H;
+	}
 #else
 	vid.width = BASEVIDWIDTH; // Default size for startup
 	vid.height = BASEVIDHEIGHT; // BitsPerPixel is the SDL interface's
@@ -2216,12 +2233,17 @@ void I_StartupGraphics(void)
 	vid.WndParent = NULL; //For the window?
 
 #ifdef _PS3
+#ifdef HWRENDER
+	if (rendermode != render_opengl)
+#endif
+	{
 	// No SDL window, so no window icon, second VID_SetMode(), mouse
 	// grab, or SDL_RaiseWindow() -- none of that concept exists here.
 	PS3GCM_VideoInit();
 	realwidth = (Uint16)vid.width;
 	realheight = (Uint16)vid.height;
 	VID_Command_Info_f();
+	}
 #else
 #ifdef HAVE_TTF
 	I_ShutdownTTF();
@@ -2318,7 +2340,14 @@ void I_ShutdownGraphics(void)
 	OglPS3Shutdown();
 #endif
 #ifdef _PS3
-	PS3GCM_VideoShutdown();
+	// Pendant du guard d'I_StartupGraphics : le backend cellGcm brut n'a
+	// jamais touche le RSX en mode OpenGL (PS3GCM_VideoInit() y est deja
+	// saute), donc rien a arreter ici -- OglPS3Shutdown() ci-dessus s'en est
+	// deja charge.
+#ifdef HWRENDER
+	if (rendermode != render_opengl)
+#endif
+		PS3GCM_VideoShutdown();
 #else
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
 #endif
