@@ -20,7 +20,17 @@
 #ifndef _R_OPENGL_H_
 #define _R_OPENGL_H_
 
-#ifdef HAVE_SDL
+/* 2026-09-02 -- _PS3 est exclu de la branche SDL a dessein.
+ *
+ * SDL_opengl.h tire les en-tetes OpenGL de BUREAU. Sur PS3 ils compilent tres
+ * bien -- ils declarent tout -- mais ils mentent : l'implementation reellement
+ * disponible est PSGL, c'est-a-dire OpenGL ES 1.1, qui n'a ni glClearDepth, ni
+ * glDepthRange, ni glColor4ubv. Le probleme ne se voyait donc qu'a l'edition
+ * de liens, et seulement sur ces trois-la.
+ *
+ * On passe a la place par ps3/glcompat/GL/, qui rebranche sur <GLES/gl.h> et
+ * fournit les rares equivalents manquants. */
+#if defined(HAVE_SDL) && !defined(_PS3)
 #define _MATH_DEFINES_DEFINED
 
 #ifdef _MSC_VER

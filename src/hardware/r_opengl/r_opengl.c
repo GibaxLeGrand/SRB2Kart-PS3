@@ -193,6 +193,14 @@ FUNCPRINTF void GL_DBG_Printf(const char *format, ...)
 #define pglPopMatrix glPopMatrix
 #define pglLoadIdentity glLoadIdentity
 #define pglMultMatrixd glMultMatrixd
+/* 2026-09-02 -- ajoute. Ce fichier n'appelle JAMAIS pglMultMatrixd : le seul
+ * site, dans GLPerspective, appelle pglMultMatrixf (simple precision), qui
+ * n'etait declare que dans la branche !STATIC_OPENGL. En STATIC_OPENGL il
+ * passait donc en declaration implicite -- gcc le signalait, et sur une ABI
+ * 64 bits une declaration implicite d'une fonction prenant un pointeur est un
+ * vrai risque, pas une coquetterie.
+ * pglMultMatrixd est laisse en place : il ne coute rien et reste juste. */
+#define pglMultMatrixf glMultMatrixf
 #define pglRotatef glRotatef
 #define pglScalef glScalef
 #define pglTranslatef glTranslatef
@@ -206,11 +214,29 @@ FUNCPRINTF void GL_DBG_Printf(const char *format, ...)
 #define pglDrawElements glDrawElements
 #define pglEnableClientState glEnableClientState
 #define pglDisableClientState glDisableClientState
-#define pglClientActiveTexture glClientActiveTexture
-#define pglGenBuffers glGenBuffers
-#define pglBindBuffer glBindBuffer
-#define pglBufferData glBufferData
-#define pglDeleteBuffers glDeleteBuffers
+
+/* 2026-09-02 -- pglClientActiveTexture, pglGenBuffers, pglBindBuffer,
+ * pglBufferData et pglDeleteBuffers etaient definis ici, et c'etait
+ * contradictoire.
+ *
+ * Ces cinq-la font partie des NEUF pointeurs que SetupGLFunc4() remplit :
+ *
+ *     pglGenBuffers = GetGLFunc("glGenBuffers");
+ *
+ * Avec un #define, cette ligne devient une affectation A LA FONCTION
+ * elle-meme, qui ne compile pas. Et la declaration correspondante plus bas,
+ * "static PFNglClientActiveTexture pglClientActiveTexture;", devenait une
+ * redeclaration de glClientActiveTexture en variable, que le compilateur
+ * refuse egalement.
+ *
+ * Personne ne l'avait vu parce que STATIC_OPENGL ne servait qu'aux portages
+ * Dreamcast et PSP, tous deux en MINI_GL_COMPATIBILITY, donc sans
+ * multitexturing ni VBO : ces cinq entrees n'y sont jamais atteintes.
+ *
+ * Les quatre autres entrees de SetupGLFunc4 -- pglActiveTexture,
+ * pglMultiTexCoord2f, pglMultiTexCoord2fv, pglColorPointer -- n'ont
+ * justement jamais ete definies ici. On aligne les cinq restantes sur elles :
+ * elles restent des pointeurs dans les deux modes, et GetGLFunc les remplit. */
 
 /* Lighting */
 #define pglShadeModel glShadeModel
@@ -313,14 +339,10 @@ typedef void (APIENTRY * PFNglEnableClientState) (GLenum cap);
 static PFNglEnableClientState pglEnableClientState;
 typedef void (APIENTRY * PFNglDisableClientState) (GLenum cap);
 static PFNglDisableClientState pglDisableClientState;
-typedef void (APIENTRY * PFNglGenBuffers) (GLsizei n, GLuint *buffers);
-static PFNglGenBuffers pglGenBuffers;
-typedef void (APIENTRY * PFNglBindBuffer) (GLenum target, GLuint buffer);
-static PFNglBindBuffer pglBindBuffer;
-typedef void (APIENTRY * PFNglBufferData) (GLenum target, GLsizei size, const GLvoid *data, GLenum usage);
-static PFNglBufferData pglBufferData;
-typedef void (APIENTRY * PFNglDeleteBuffers) (GLsizei n, const GLuint *buffers);
-static PFNglDeleteBuffers pglDeleteBuffers;
+
+/* 2026-09-02 -- les quatre VBO ont ete deplaces hors de ce bloc, plus bas, a
+ * cote des entrees 1.3. Ils sont remplis par SetupGLFunc4() dans les deux
+ * modes, donc ils doivent etre declares dans les deux modes. */
 
 /* Lighting */
 typedef void (APIENTRY * PFNglShadeModel) (GLenum mode);
@@ -381,6 +403,22 @@ typedef void (APIENTRY *PFNglMultiTexCoord2fv) (GLenum target, const GLfloat *v)
 static PFNglMultiTexCoord2fv pglMultiTexCoord2fv;
 typedef void (APIENTRY *PFNglClientActiveTexture) (GLenum);
 static PFNglClientActiveTexture pglClientActiveTexture;
+
+/* 1.5 functions for vertex buffer objects.
+ *
+ * 2026-09-02 -- remontes ici depuis la branche !STATIC_OPENGL. Comme les
+ * quatre entrees 1.3 juste au-dessus, SetupGLFunc4() les remplit quel que soit
+ * le mode : les declarer dans un seul des deux rendait ce fichier
+ * incompilable en STATIC_OPENGL des que le multitexturing ou les VBO
+ * existaient sur la plateforme. */
+typedef void (APIENTRY * PFNglGenBuffers) (GLsizei n, GLuint *buffers);
+static PFNglGenBuffers pglGenBuffers;
+typedef void (APIENTRY * PFNglBindBuffer) (GLenum target, GLuint buffer);
+static PFNglBindBuffer pglBindBuffer;
+typedef void (APIENTRY * PFNglBufferData) (GLenum target, GLsizei size, const GLvoid *data, GLenum usage);
+static PFNglBufferData pglBufferData;
+typedef void (APIENTRY * PFNglDeleteBuffers) (GLsizei n, const GLuint *buffers);
+static PFNglDeleteBuffers pglDeleteBuffers;
 
 // sky dome needs this
 typedef void    (APIENTRY *PFNglColorPointer)       (GLint, GLenum, GLsizei, const GLvoid*);
