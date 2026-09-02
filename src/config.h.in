@@ -75,8 +75,21 @@
 // vanilla server, and only when it is loaded. Ship its original audio lumps, or
 // leave it out when going online.
 
+// 2026-09-02 -- the re-encoded set is now OPTIONAL, selected by PS3_ASSETS_48K
+// rather than by _PS3. Both asset sets are on disk (assets_48k/ and
+// SRB2Kart_OriginalPCAsset/) and we want to be able to run either without
+// editing this file, because which one is loaded is a variable in the frozen
+// sprite investigation. Build with -DPS3_ASSETS_48K for the re-encoded set,
+// without it for stock v1.6 data.
+//
+// Reminder of the trade, so the flag is not flipped blind: stock data is
+// 44100 Hz, the console's audio port is fixed at 48000, and SDL_mixer then
+// builds a resampling SDL_AudioStream per track -- which is what killed the
+// process one second into the intro, twice. Stock data and SDL_mixer together
+// are expected to be unstable until that resampler is dealt with.
+
 // Base SRB2 hashes
-#ifdef _PS3
+#ifdef PS3_ASSETS_48K
 #define ASSET_HASH_SRB2_SRB      "6318c1234c7c7ff9f70cd1a55291a05b"
 #else
 #define ASSET_HASH_SRB2_SRB      "c1b9577687f8a795104aef4600720ea7"
@@ -88,7 +101,7 @@
 // SRB2Kart-specific hashes
 #define ASSET_HASH_GFX_KART      "06f86ee16136eb8a7043b15001797034"
 #define ASSET_HASH_TEXTURES_KART "abb53d56aba47c3a8cb0f764da1c8b80"
-#ifdef _PS3
+#ifdef PS3_ASSETS_48K
 #define ASSET_HASH_CHARS_KART    "511561b6ce56ca8239dd3d1513dab2e5"
 #else
 #define ASSET_HASH_CHARS_KART    "e2c428347dde52858a3dacd29fc5b964"
