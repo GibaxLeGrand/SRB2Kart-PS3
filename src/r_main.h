@@ -89,6 +89,9 @@ extern consvar_t /*cv_precipdensity,*/ cv_drawdist, /*cv_drawdist_nights,*/ cv_d
 extern consvar_t cv_fov;
 extern consvar_t cv_skybox;
 extern consvar_t cv_tailspickup;
+#ifdef _PS3
+extern consvar_t cv_ps3quality; // Quality / Performance -- purement local, jamais CV_NETVAR
+#endif
 
 // Called by startup code.
 void R_Init(void);

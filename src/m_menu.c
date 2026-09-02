@@ -1266,6 +1266,11 @@ static menuitem_t OP_VideoOptionsMenu[] =
 #endif
 	{IT_STRING | IT_CVAR | IT_CV_SLIDER,
 							NULL,	"Gamma",				&cv_usegamma,			 30},
+#ifdef _PS3
+	// 2026-09-02 -- bascule les trois reglages en dessous d'un coup. Repris du
+	// portage PS Vita ; voir R_PS3Quality_OnChange dans r_main.c.
+	{IT_STRING | IT_CVAR,	NULL,	"Graphics Mode",		&cv_ps3quality,			 40},
+#endif
 
 	{IT_STRING | IT_CVAR,	NULL,	"Draw Distance",		&cv_drawdist,			 45},
 	//{IT_STRING | IT_CVAR,	NULL,	"NiGHTS Draw Dist",		&cv_drawdist_nights,	 55},
@@ -1290,6 +1295,9 @@ enum
 	op_video_fullscreen,
 #endif
 	op_video_gamma,
+#ifdef _PS3
+	op_video_gfxmode,
+#endif
 	op_video_dd,
 	op_video_wdd,
 	//op_video_wd,

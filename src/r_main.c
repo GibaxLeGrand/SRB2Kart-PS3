@@ -187,6 +187,48 @@ consvar_t cv_drawdist = {"drawdist", "Infinite", CV_SAVE, drawdist_cons_t, NULL,
 consvar_t cv_drawdist_precip = {"drawdist_precip", "1024", CV_SAVE, drawdist_precip_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 //consvar_t cv_precipdensity = {"precipdensity", "Moderate", CV_SAVE, precipdensity_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 
+#ifdef _PS3
+// 2026-09-02 -- mode graphique de la console (menu Video Options), repris du
+// portage PS Vita d'Esodland. Place ICI, apres les cvars qu'il pilote, pour ne
+// dependre d'aucune chaine d'inclusion.
+//
+// AUCUN de ces reglages n'est un CV_NETVAR : ils sont purement locaux au client,
+// donc aucun risque de desynchro en ligne. C'est la condition a respecter si on
+// en ajoute d'autres.
+//
+// Ce qui NE transfere PAS de la Vita : leur levier principal est la resolution,
+// parce que leur jeu est GPU-bound (14,5 ms de presentation sur 26 ms de frame).
+// Nous rendons en logiciel sur le PPE, en 320x200, donc deja au minimum -- il
+// n'y a plus rien a couper de ce cote.
+//
+// En revanche ces trois-la devraient nous rapporter BEAUCOUP plus qu'a eux, ou
+// ils n'ont « presque rien change » : en rasterisation logicielle chaque sprite
+// visible coute du tri, du clipping et du remplissage de colonnes sur le PPE.
+// drawdist a « Infinite » par defaut est franchement genereux pour une PS3.
+//
+// Candidat suivant, volontairement PAS inclus ici : cv_translucency. C'est un
+// vrai cout en logiciel (transtransfunc, twosmultipatchtransfunc), mais aussi un
+// changement visuel majeur. A trancher avec le decoupage du temps de frame
+// (etape C1 de AUDIT_VITA_20260902.md), pas a l'intuition -- leur lecon la plus
+// utile est « every guess was wrong ».
+static void R_PS3Quality_OnChange(void);
+static CV_PossibleValue_t ps3quality_cons_t[] = {{0, "Quality"}, {1, "Performance"}, {0, NULL}};
+consvar_t cv_ps3quality = {"ps3quality", "Quality", CV_SAVE|CV_CALL, ps3quality_cons_t,
+	R_PS3Quality_OnChange, 0, NULL, NULL, 0, 0, NULL};
+
+static void R_PS3Quality_OnChange(void)
+{
+	const boolean perf = (cv_ps3quality.value != 0);
+
+	// Sprites au loin. Le levier le plus direct sur un rasteriseur logiciel.
+	CV_Set(&cv_drawdist, perf ? "2048" : "Infinite");
+	CV_Set(&cv_drawdist_precip, perf ? "None" : "1024");
+
+	// Le skybox fait rendre une SECONDE vue de la scene (R_RenderSkyboxView).
+	CV_Set(&cv_skybox, perf ? "Off" : "On");
+}
+#endif
+
 // cap fov, fov too high tears software apart.
 consvar_t cv_fov = {"fov", "90", CV_FLOAT|CV_CALL|CV_SAVE, fov_cons_t, Fov_OnChange, 0, NULL, NULL, 0, 0, NULL};
 
@@ -1510,6 +1552,11 @@ void R_RegisterEngineStuff(void)
 	CV_RegisterVar(&cv_shadow);
 	CV_RegisterVar(&cv_shadowoffs);
 	CV_RegisterVar(&cv_skybox);
+#ifdef _PS3
+	// Apres cv_drawdist / cv_drawdist_precip / cv_skybox : son callback les
+	// pilote, et la lecture du fichier de config le declenche.
+	CV_RegisterVar(&cv_ps3quality);
+#endif
 
 	CV_RegisterVar(&cv_cam_dist);
 	CV_RegisterVar(&cv_cam_still);
