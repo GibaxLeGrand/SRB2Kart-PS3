@@ -1877,7 +1877,7 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 	}
 
 	// Renderer-specific stuff
-#ifdef HWRENDER
+#if defined(HWRENDER) && !defined(_PS3)
 	if (rendermode == render_opengl)
 	{
 		sdlglcontext = SDL_GL_CreateContext(window);
@@ -1888,6 +1888,16 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 		}
 		SDL_GL_MakeCurrent(window, sdlglcontext);
 	}
+	else
+#elif defined(HWRENDER)
+	// 2026-09-02 -- sur PS3 le contexte GL n'appartient pas a SDL.
+	// SDL2_PSL1GHT ne sait pas en creer, et de toute facon c'est PSGL qui
+	// possede a la fois le peripherique et le contexte : LoadGL(), dans
+	// sdl/ogl_psgl.c, s'en charge via psglCreateDeviceExtended puis
+	// psglMakeCurrent. On saute donc ce bloc -- sinon on echouerait ici avant
+	// meme d'atteindre PSGL.
+	if (rendermode == render_opengl)
+		{ /* rien : PSGL s'en occupe */ }
 	else
 #endif
 	if (rendermode == render_soft)
@@ -2295,13 +2305,17 @@ void I_ShutdownGraphics(void)
 	graphics_started = false;
 	I_OutputMsg("shut down\n");
 
-#ifdef HWRENDER
+#if defined(HWRENDER) && !defined(_PS3)
 	if (GLUhandle)
 		hwClose(GLUhandle);
 	if (sdlglcontext)
 	{
 		SDL_GL_DeleteContext(sdlglcontext);
 	}
+#elif defined(HWRENDER)
+	// Pendant de la creation plus haut : c'est PSGL qui detient le contexte,
+	// donc c'est PSGL qui le rend.
+	OglPS3Shutdown();
 #endif
 #ifdef _PS3
 	PS3GCM_VideoShutdown();

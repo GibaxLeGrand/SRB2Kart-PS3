@@ -36,9 +36,29 @@ command -v "${PREFIX}-gcc" >/dev/null || { echo "MANQUE: ${PREFIX}-gcc (PATH n'a
 "${PREFIX}-gcc" -c "$SCRIPT_DIR/ps3-compat/ps3_sysutil_compat.c" -o "$SCRIPT_DIR/ps3-compat/ps3_sysutil_compat.o"
 "${PREFIX}-ar" rcs "$SCRIPT_DIR/ps3-compat/libps3compat.a" "$SCRIPT_DIR/ps3-compat/ps3_sysutil_compat.o"
 
+# 2026-09-02 -- renderer : logiciel par defaut, OpenGL sur demande.
+#
+# Rappel de vocabulaire, parce que le nom trompe : dans SRB2, HWRENDER *est*
+# le renderer OpenGL ("HW" = hardware, par opposition au logiciel). NOHW=1
+# construit donc le chemin LOGICIEL, et retirer NOHW active OpenGL.
+#
+#   GLRENDER=1 ./build_srb2kart_ps3.sh   -> OpenGL, via PSGL
+#   (rien)                               -> logiciel, comme jusqu'ici
+#
+# Le chemin OpenGL est neuf (etape A5 de AUDIT_VITA_20260902.md) : il compile
+# et lie, mais n'a pas encore affiche une image. Le logiciel reste le defaut
+# tant que ce n'est pas verifie.
+if [ -n "$GLRENDER" ]; then
+	HW_FLAGS="PS3DK_GLCOMPAT=$SCRIPT_DIR/glcompat"
+	echo "=== renderer : OpenGL (PSGL) ==="
+else
+	HW_FLAGS="NOHW=1"
+	echo "=== renderer : logiciel ==="
+fi
+
 echo "=== building srb2kart_ps3.elf ==="
 cd "$REPO_ROOT/src"
-make SDL=1 PS3GCM=1 PREFIX="$PREFIX" NONX86=1 NOASM=1 NOHW=1 NOMIXER=1 NONET=1 NOPNG=1 \
+make SDL=1 PS3GCM=1 PREFIX="$PREFIX" NONX86=1 NOASM=1 $HW_FLAGS NOMIXER=1 NONET=1 NOPNG=1 \
      SDL_CONFIG=sdl2-config \
      ZLIB_CFLAGS="-I$PS3DEV/portlibs/ppu/include" \
      ZLIB_LDFLAGS="-L$PS3DEV/portlibs/ppu/lib -lz -L$SCRIPT_DIR/ps3-compat -lps3compat" \

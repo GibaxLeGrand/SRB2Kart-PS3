@@ -25,7 +25,13 @@ boolean OglSdlSurface(INT32 w, INT32 h);
 void OglSdlFinishUpdate(boolean vidwait);
 
 extern SDL_Renderer *renderer;
+#ifndef _PS3
 extern SDL_GLContext sdlglcontext;
+#else
+/* PSGL detient le contexte GL sur cette plateforme -- il n'y a pas de
+ * SDL_GLContext a exposer. Voir sdl/ogl_psgl.c. */
+void OglPS3Shutdown(void);
+#endif
 extern Uint16      realwidth;
 extern Uint16      realheight;
 

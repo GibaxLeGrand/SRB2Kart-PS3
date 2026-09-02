@@ -558,7 +558,11 @@ md2found:
 	fclose(f);
 }
 
-void HWR_AddPlayerMD2(int skin) // For MD2's that were added after startup
+// 2026-09-02 -- "int" ici, "INT32" dans hw_md2.h:43. Sur x86 les deux sont le
+// meme type et personne ne le voyait ; sur PPU, INT32 est un long int, donc
+// les declarations entrent en conflit et le fichier ne compile pas. La
+// definition suit l'en-tete.
+void HWR_AddPlayerMD2(INT32 skin) // For MD2's that were added after startup
 {
 	FILE *f;
 	char name[20], filename[32];
