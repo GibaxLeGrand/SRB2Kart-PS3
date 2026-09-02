@@ -75,14 +75,6 @@ static void P_NukeAllPlayers(player_t *player);
 // chance -- les adresses PS3 tiennent dans les 4 premiers Go.
 extern INT32 ps3_animonly_hits;   // p_mobj.c, incremente a l'etiquette animonly
 extern INT32 ps3_animonly_tics;   // valeur de mobj->tics juste avant decrementation
-
-// 2026-09-02 -- l'etat releve juste apres P_XYMovement, la ou se trouve le seul
-// `return` situe entre le deplacement du kart et l'etiquette animonly. Le pave
-// explicatif est au-dessus de leur definition, dans p_mobj.c.
-extern INT32 ps3_xy_hits;
-extern INT32 ps3_xy_removed;
-extern void *ps3_xy_thinker_fn;
-extern void *ps3_xy_expected_fn;
 static void PS3_AnimProbe(player_t *player)
 {
 	static INT32 written = 0;
@@ -103,8 +95,7 @@ static void PS3_AnimProbe(player_t *player)
 
 	fprintf(f,
 		"tic=%-6u speed=%-8d state=%-5d tics=%-4d sprite=%-4d frame=%-4u "
-		"panim=%d mom=(%d,%d) drift=%d spinout=%d anim_hits=%d anim_tics=%d "
-		"xy_hits=%d xy_removed=%d fn=%p want=%p%s\n",
+		"panim=%d mom=(%d,%d) drift=%d spinout=%d anim_hits=%d anim_tics=%d\n",
 		(unsigned)gametic,
 		(int)player->speed,
 		(int)(player->mo->state - states),
@@ -116,16 +107,7 @@ static void PS3_AnimProbe(player_t *player)
 		(int)player->kartstuff[k_drift],
 		(int)player->kartstuff[k_spinouttimer],
 		(int)ps3_animonly_hits,
-		(int)ps3_animonly_tics,
-		(int)ps3_xy_hits,
-		(int)ps3_xy_removed,
-		ps3_xy_thinker_fn,
-		ps3_xy_expected_fn,
-		// Le verdict en clair, pour ne pas avoir a comparer deux pointeurs a
-		// l'oeil sur 900 lignes.
-		(ps3_xy_removed != 1) ? ""
-			: (ps3_xy_thinker_fn == ps3_xy_expected_fn) ? "  <<< OPD"
-			: "  <<< CORRUPTION");
+		(int)ps3_animonly_tics);
 	fclose(f);
 	written++;
 }
