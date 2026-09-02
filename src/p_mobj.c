@@ -3605,6 +3605,46 @@ boolean P_CameraThinker(player_t *player, camera_t *thiscam, boolean resetcalled
 // de p_user.c. A retirer avec elle.
 INT32 ps3_animonly_hits = 0;
 INT32 ps3_animonly_tics = 0;
+
+// 2026-09-02, TEMPORAIRE -- la sonde qui doit lever la contradiction.
+//
+// anim_hits reste a 0 : l'etiquette animonly n'est jamais atteinte pour le mobj
+// du joueur. On en avait conclu que P_PlayerMobjThinker ne s'executait pas, ce
+// qui contredisait le fait que le kart bouge. C'est une fausse contradiction --
+// il y a un `return` ENTRE les deux, et un seul :
+//
+//     if (mobj->momx || mobj->momy)
+//     {
+//         P_XYMovement(mobj);            <- le kart bouge ici
+//         if (P_MobjWasRemoved(mobj))
+//             return;                    <- et on sort ici, avant animonly
+//     }
+//     else
+//         P_TryMove(...);                <- pas de sortie sur ce chemin
+//
+// Ca explique TOUT, y compris le detail qui n'avait jamais colle : le sprite
+// n'est fige QU'EN COURSE. A l'arret, momx == momy == 0, l'autre branche passe,
+// et l'animation tourne.
+//
+// P_MobjWasRemoved ne teste qu'une chose : thinker.function.acp1 == P_MobjThinker.
+// Or sur PPC64 ELFv1 un pointeur de fonction est un DESCRIPTEUR OPD, pas une
+// adresse de code -- et PS3DK a justement un exemple nomme compact-opd-probe, ce
+// qui suggere que la toolchain connait le sujet. Deux causes possibles, que ces
+// compteurs separent en un seul run :
+//
+//   xy_removed=1 et fn == thinker_fn  -> les deux descripteurs different alors
+//                                        que la fonction est la meme : probleme
+//                                        d'ABI, et le son n'y est pour rien.
+//   xy_removed=1 et fn != thinker_fn  -> le champ a ete ECRASE : corruption
+//                                        memoire, et SDL_mixer redevient suspect.
+//   xy_removed=0                      -> raisonnement faux, tout est a reprendre.
+//
+// Cout : aucun. On ne fait qu'affecter des globales, c'est la sonde deja en place
+// dans p_user.c qui les imprime, dans la ligne qu'elle ecrit de toute facon.
+INT32 ps3_xy_hits = 0;        // passages dans la branche momx||momy
+INT32 ps3_xy_removed = -1;    // P_MobjWasRemoved juste apres P_XYMovement
+void *ps3_xy_thinker_fn = 0;  // mobj->thinker.function.acp1 a ce moment
+void *ps3_xy_expected_fn = 0; // (actionf_p1)P_MobjThinker, pour comparer
 #endif
 
 //
@@ -3651,6 +3691,24 @@ static void P_PlayerMobjThinker(mobj_t *mobj)
 	if (mobj->momx || mobj->momy)
 	{
 		P_XYMovement(mobj);
+
+#ifdef _PS3
+		// 2026-09-02, TEMPORAIRE. Voir le pave au-dessus de ps3_xy_hits : c'est
+		// ce `return` qui est le suspect, et il faut savoir s'il se declenche.
+		// Note l'ETAT, pas seulement le verdict, pour separer un probleme de
+		// descripteur OPD d'un ecrasement memoire.
+		//
+		// Restreint au joueur AFFICHE : dans une demo tous les karts sont des
+		// players, ils passeraient tous ici, et le dernier ecraserait la valeur
+		// de celui que la sonde de p_user.c imprime.
+		if (mobj->player == &players[displayplayers[0]])
+		{
+			ps3_xy_hits++;
+			ps3_xy_removed = P_MobjWasRemoved(mobj) ? 1 : 0;
+			ps3_xy_thinker_fn = (void *)mobj->thinker.function.acp1;
+			ps3_xy_expected_fn = (void *)P_MobjThinker;
+		}
+#endif
 
 		if (P_MobjWasRemoved(mobj))
 			return;
