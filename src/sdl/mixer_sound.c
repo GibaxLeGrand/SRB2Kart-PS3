@@ -458,9 +458,28 @@ void *I_GetSfx(sfxinfo_t *sfx)
 	if (rw != NULL)
 	{
 		chunk = Mix_LoadWAV_RW(rw, 1);
+
+		// 2026-09-02: give the raw lump back. Mix_LoadWAV_RW's second argument
+		// only frees the SDL_RWops -- the memory it was reading from is ours,
+		// and every other exit from this function already returns it (the Doom
+		// PCM path above, and both GME paths). This one never did, so a sound
+		// played once cost the zone its compressed lump *plus* SDL's heap the
+		// decoded PCM, for as long as the sound stayed loaded.
+		//
+		// The chunk does not point into the lump: SDL_mixer decodes Ogg in full
+		// and copies WAVE, so chunk->abuf is its own allocation (that is what
+		// chunk->allocated == 1 means, and I_FreeSfx below relies on the same
+		// distinction). Freeing after the call is therefore safe, including
+		// when it fails and returns NULL.
+		//
+		// It matters most on PS3: 674 Ogg effects, 256MB of console, and the
+		// re-encoded 48kHz assets make a second of decoded PCM 192KB.
+		Z_Free(lump);
+
 		return chunk;
 	}
 
+	Z_Free(lump); // SDL_RWFromMem failed; the lump is still ours to release
 	return NULL; // haven't been able to get anything
 }
 
