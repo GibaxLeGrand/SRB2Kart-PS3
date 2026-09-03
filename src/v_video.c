@@ -1319,6 +1319,47 @@ UINT8 *V_GetStringColormap(INT32 colorflags)
 #endif
 }
 
+// 2026-09-03 -- largeur d'un patch, quel que soit le renderer.
+//
+// En mode OpenGL, W_CachePatchNum() ne renvoie PAS un patch_t mais un
+// GLPatch_t (w_wad.c:1709, W_CachePatchNumPwad). Les deux partagent
+// volontairement leurs quatre premiers champs INT16 -- "the 4 first fields come
+// right away from the original patch_t" (hw_data.h:101) -- mais ceux du
+// GLPatch_t sont DEJA en ordre hote (poses par hw_cache.c:424-427) alors que
+// ceux du patch_t sont en ordre WAD.
+//
+// Leur appliquer SHORT() en mode OpenGL est donc un DOUBLE echange d'octets.
+// Invisible sur PC ou SHORT() est l'identite ; sur PPC la largeur des chaines
+// explosait, et tout texte centre ou cale a droite partait hors de l'ecran.
+// Mesure a l'appui : un glyphe cale en bas a droite (V_SNAPTORIGHT) arrivait
+// dans HWR_DrawFixedPatch avec x = -961 alors que vid.width valait 320.
+//
+// Meme famille que les correctifs de hw_cache.c (masque de fondu) et de
+// hw_draw.c (champs gpatch->). Hors chemin G_Ticker/P_Ticker, donc sans effet
+// sur le determinisme reseau.
+static INT16 V_PatchWidth(const patch_t *patch)
+{
+	if (!patch)
+		return 0;
+#ifdef HWRENDER
+	if (rendermode != render_soft && rendermode != render_none)
+		return ((const GLPatch_t *)(const void *)patch)->width;
+#endif
+	return SHORT(patch->width);
+}
+
+// Idem pour la hauteur : meme raisonnement que V_PatchWidth.
+static INT16 V_PatchHeight(const patch_t *patch)
+{
+	if (!patch)
+		return 0;
+#ifdef HWRENDER
+	if (rendermode != render_soft && rendermode != render_none)
+		return ((const GLPatch_t *)(const void *)patch)->height;
+#endif
+	return SHORT(patch->height);
+}
+
 // Writes a single character (draw WHITE if bit 7 set)
 //
 void V_DrawCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed)
@@ -1335,7 +1376,7 @@ void V_DrawCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed)
 	if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
 		return;
 
-	w = SHORT(hu_font[c]->width);
+	w = V_PatchWidth(hu_font[c]);
 	if (x + w > vid.width)
 		return;
 
@@ -1362,7 +1403,7 @@ void V_DrawChatCharacter(INT32 x, INT32 y, INT32 c, boolean lowercaseallowed, UI
 	if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
 		return;
 
-	w = SHORT(hu_font[c]->width)/2;
+	w = V_PatchWidth(hu_font[c])/2;
 	if (x + w > vid.width)
 		return;
 
@@ -1528,10 +1569,10 @@ void V_DrawString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*dupx/2;
+			center = w/2 - V_PatchWidth(hu_font[c])*dupx/2;
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx;
+			w = V_PatchWidth(hu_font[c]) * dupx;
 
 		if (cx > scrwidth)
 			break;
@@ -1630,10 +1671,10 @@ void V_DrawKartString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(kart_font[c]->width)*dupx/2;
+			center = w/2 - V_PatchWidth(kart_font[c])*dupx/2;
 		}
 		else
-			w = SHORT(kart_font[c]->width) * dupx;
+			w = V_PatchWidth(kart_font[c]) * dupx;
 
 		if (cx > scrwidth)
 			break;
@@ -1748,10 +1789,10 @@ void V_DrawSmallString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*dupx/4;
+			center = w/2 - V_PatchWidth(hu_font[c])*dupx/4;
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx / 2;
+			w = V_PatchWidth(hu_font[c]) * dupx / 2;
 		if (cx > scrwidth)
 			break;
 		if (cx+left + w < 0) //left boundary check
@@ -1859,8 +1900,8 @@ void V_DrawThinString(INT32 x, INT32 y, INT32 option, const char *string)
 		if (charwidth)
 			w = charwidth * dupx;
 		else
-			w = ((option & V_6WIDTHSPACE ? max(1, SHORT(tny_font[c]->width)-1) // Reuse this flag for the alternate bunched-up spacing
-				: SHORT(tny_font[c]->width)) * dupx);
+			w = ((option & V_6WIDTHSPACE ? max(1, V_PatchWidth(tny_font[c])-1) // Reuse this flag for the alternate bunched-up spacing
+				: V_PatchWidth(tny_font[c])) * dupx);
 
 		if (cx > scrwidth)
 			break;
@@ -1960,10 +2001,10 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 		if (charwidth)
 		{
 			w = charwidth * dupx;
-			center = w/2 - SHORT(hu_font[c]->width)*(dupx/2);
+			center = w/2 - V_PatchWidth(hu_font[c])*(dupx/2);
 		}
 		else
-			w = SHORT(hu_font[c]->width) * dupx;
+			w = V_PatchWidth(hu_font[c]) * dupx;
 
 		if ((cx>>FRACBITS) > scrwidth)
 			break;
@@ -1982,7 +2023,7 @@ void V_DrawStringAtFixed(fixed_t x, fixed_t y, INT32 option, const char *string)
 // Draws a tallnum.  Replaces two functions in y_inter and st_stuff
 void V_DrawTallNum(INT32 x, INT32 y, INT32 flags, INT32 num)
 {
-	INT32 w = SHORT(tallnum[0]->width);
+	INT32 w = V_PatchWidth(tallnum[0]);
 	boolean neg;
 
 	if (flags & V_NOSCALESTART)
@@ -2008,7 +2049,7 @@ void V_DrawTallNum(INT32 x, INT32 y, INT32 flags, INT32 num)
 // Does not handle negative numbers in a special way, don't try to feed it any.
 void V_DrawPaddedTallNum(INT32 x, INT32 y, INT32 flags, INT32 num, INT32 digits)
 {
-	INT32 w = SHORT(tallnum[0]->width);
+	INT32 w = V_PatchWidth(tallnum[0]);
 
 	if (flags & V_NOSCALESTART)
 		w *= vid.dupx;
@@ -2030,7 +2071,7 @@ void V_DrawPaddedTallNum(INT32 x, INT32 y, INT32 flags, INT32 num, INT32 digits)
 
 INT32 V_DrawPingNum(INT32 x, INT32 y, INT32 flags, INT32 num, const UINT8 *colormap)
 {
-	INT32 w = SHORT(pingnum[0]->width);	// this SHOULD always be 5 but I guess custom graphics exist.
+	INT32 w = V_PatchWidth(pingnum[0]);	// this SHOULD always be 5 but I guess custom graphics exist.
 
 	if (flags & V_NOSCALESTART)
 		w *= vid.dupx;
@@ -2090,7 +2131,7 @@ void V_DrawCreditString(fixed_t x, fixed_t y, INT32 option, const char *string)
 			continue;
 		}
 
-		w = SHORT(cred_font[c]->width) * dupx;
+		w = V_PatchWidth(cred_font[c]) * dupx;
 		if ((cx>>FRACBITS) > scrwidth)
 			break;
 
@@ -2116,7 +2157,7 @@ INT32 V_CreditStringWidth(const char *string)
 		if (c < 0 || c >= CRED_FONTSIZE)
 			w += 16;
 		else
-			w += SHORT(cred_font[c]->width);
+			w += V_PatchWidth(cred_font[c]);
 	}
 
 	return w;
@@ -2163,7 +2204,7 @@ void V_DrawLevelTitle(INT32 x, INT32 y, INT32 option, const char *string)
 			continue;
 		}
 
-		w = SHORT(lt_font[c]->width) * dupx;
+		w = V_PatchWidth(lt_font[c]) * dupx;
 		if (cx > scrwidth)
 			break;
 		if (cx+left + w < 0) //left boundary check
@@ -2190,7 +2231,7 @@ INT32 V_LevelNameWidth(const char *string)
 		if (c < 0 || c >= LT_FONTSIZE || !lt_font[c])
 			w += 12;
 		else
-			w += SHORT(lt_font[c]->width);
+			w += V_PatchWidth(lt_font[c]);
 	}
 
 	return w;
@@ -2209,8 +2250,8 @@ INT32 V_LevelNameHeight(const char *string)
 		if (c < 0 || c >= LT_FONTSIZE || !lt_font[c])
 			continue;
 
-		if (SHORT(lt_font[c]->height) > w)
-			w = SHORT(lt_font[c]->height);
+		if (V_PatchHeight(lt_font[c]) > w)
+			w = V_PatchHeight(lt_font[c]);
 	}
 
 	return w;
@@ -2249,7 +2290,7 @@ INT32 V_StringWidth(const char *string, INT32 option)
 		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
 			w += spacewidth;
 		else
-			w += (charwidth ? charwidth : SHORT(hu_font[c]->width));
+			w += (charwidth ? charwidth : V_PatchWidth(hu_font[c]));
 	}
 
 	return w;
@@ -2288,7 +2329,7 @@ INT32 V_SmallStringWidth(const char *string, INT32 option)
 		if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
 			w += spacewidth;
 		else
-			w += (charwidth ? charwidth : SHORT(hu_font[c]->width)/2);
+			w += (charwidth ? charwidth : V_PatchWidth(hu_font[c])/2);
 	}
 
 	return w;
@@ -2334,8 +2375,8 @@ INT32 V_ThinStringWidth(const char *string, INT32 option)
 		else
 		{
 			w += (charwidth ? charwidth
-				: ((option & V_6WIDTHSPACE && i < strlen(string)-1) ? max(1, SHORT(tny_font[c]->width)-1) // Reuse this flag for the alternate bunched-up spacing
-				: SHORT(tny_font[c]->width)));
+				: ((option & V_6WIDTHSPACE && i < strlen(string)-1) ? max(1, V_PatchWidth(tny_font[c])-1) // Reuse this flag for the alternate bunched-up spacing
+				: V_PatchWidth(tny_font[c])));
 		}
 	}
 

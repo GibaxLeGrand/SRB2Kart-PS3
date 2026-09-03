@@ -1157,8 +1157,25 @@ void Flush(void)
 	{
 		// ceci n'est pas du tout necessaire vu que tu les a charger normalement et
 		// donc il sont dans ta liste !
+#if defined(_PS3) && !defined(PS3_ALLOW_TEXTURE_DELETE)
+		// 2026-09-02, DIAGNOSTIC TEMPORAIRE -- ne PAS livrer tel quel.
+		//
+		// La pile d'appels du plantage OpenGL passe exactement par ici :
+		//   heapFree <- rsxFree <- psgl_release_texture_storage
+		//            <- psgl_context_delete_textures <- glDeleteTextures <- Flush
+		// Les trois premiers Flush() du demarrage passent (cache vide) ; le
+		// quatrieme, celui de SCR_SetMode, meurt sur la premiere vraie
+		// destruction de texture PSGL.
+		//
+		// On saute donc la destruction : la texture FUIT en VRAM, mais le reste
+		// de la boucle (mise a zero de downloaded, vidage de la liste) est
+		// conserve, donc le moteur re-televerse normalement. Si le jeu atteint
+		// une image rendue avec ca, le diagnostic est confirme.
+		// Rebasculer avec -DPS3_ALLOW_TEXTURE_DELETE.
+#else
 		if (gr_cachehead->downloaded)
 			pglDeleteTextures(1, (GLuint *)&gr_cachehead->downloaded);
+#endif
 		gr_cachehead->downloaded = 0;
 		gr_cachehead = gr_cachehead->nextmipmap;
 	}

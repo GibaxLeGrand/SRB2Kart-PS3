@@ -2234,7 +2234,33 @@ void I_StartupGraphics(void)
 
 #ifdef _PS3
 #ifdef HWRENDER
-	if (rendermode != render_opengl)
+	if (rendermode == render_opengl)
+	{
+		// 2026-09-02 -- CORRECTIF STRUCTUREL.
+		//
+		// Le commentaire ci-dessus affirmait que SDLSetMode() avait deja
+		// appele OglSdlSurface(). C'est FAUX, et les canaris de LoadGL() le
+		// prouvent : seuls C0..C4 (dans LoadGL, appelee par HWRAPI(Init),
+		// r_opengl.c:1222) s'ecrivent, jamais C5..C10. OglSdlSurface() n'est
+		// appelee QUE depuis SDLSetMode() (i_video.c:236), c'est-a-dire depuis
+		// le chemin fenetre SDL -- qui n'existe pas sur PS3.
+		//
+		// Consequence : SetupGLFunc4() ne tournait jamais, donc les neuf
+		// pointeurs qu'il resout (pglActiveTexture, pglClientActiveTexture,
+		// pglMultiTexCoord2f/2fv, les quatre VBO, pglColorPointer) restaient
+		// NULS. Le premier appel a l'un d'eux saute a l'adresse 0. Symptome
+		// mesure : lecture en 0x0 dans DoScreenWipe (r_opengl.c:3469, sur
+		// pglActiveTexture). SetModelView(), SetStates() et HWR_Startup()
+		// etaient sautes du meme coup.
+		//
+		// LoadGL() a deja pose ps3gl_device a ce stade, donc OglSdlSurface()
+		// ne le recree pas : elle enchaine directement sur la partie manquante.
+		OglSdlSurface(vid.width, vid.height);
+		realwidth = (Uint16)vid.width;
+		realheight = (Uint16)vid.height;
+		VID_Command_Info_f();
+	}
+	else
 #endif
 	{
 	// No SDL window, so no window icon, second VID_SetMode(), mouse

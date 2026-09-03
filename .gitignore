@@ -30,3 +30,8 @@ Win32_LIB_ASM_Release
 /pkgstage_eboot/
 /srb2kart_ps3.pkg
 /srb2kart_ps3_eboot.pkg
+
+# Sorties de build PS3 (PS3DK / make SDL=1) et sauvegardes locales
+/bin/Release/
+/objs/SDL/
+*.bak-*

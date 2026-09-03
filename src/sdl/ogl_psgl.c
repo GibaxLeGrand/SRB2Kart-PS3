@@ -126,8 +126,25 @@ void *GetGLFunc(const char *proc)
 //                                                            INITIALISATION
 // ==========================================================================
 
+// 2026-09-03 -- journal des etapes d'init GL, ecrit sur DISQUE.
+//
+// Remplace le canari de tas du 02/09 (quinze malloc/free et autant d'ecritures
+// par point de passage) : il avait rempli son role en encadrant la corruption
+// entre C4 et C5, et coutait bien trop cher pour rester.
+//
+// Une ligne par etape, avec fflush + fclose immediats : la trace survit donc a
+// un gel, ce qui est exactement ce qu'il faut. C'est notre SEULE visibilite sur
+// VRAIE CONSOLE, ou aucun journal d'emulateur n'existe -- recuperer
+// psdebugC.txt par FTP dans /dev_hdd0/game/<APPID>/USRDIR/.
+static void ps3gl_log(const char *where)
+{
+	FILE *f = fopen(PS3_DebugPath("psdebugC.txt"), "a");
+	if (f) { fprintf(f, "%s\n", where); fflush(f); fclose(f); }
+}
+
 boolean LoadGL(void)
 {
+	ps3gl_log("C0 LoadGL entry");
 	PSGLinitOptions options;
 	PSGLdeviceParameters params;
 
@@ -135,7 +152,20 @@ boolean LoadGL(void)
 		return SetupGLfunc(); // deja initialise
 
 	memset(&options, 0, sizeof options);
+	// 2026-09-03 -- FIFO laisse a sa taille par defaut (1 Mio).
+	//
+	// Un test a 8 Mio (x8) a ete fait pour verifier si la mort du FIFO venait
+	// de son BOUCLAGE : elle survient de facon reproductible vers 1:20-1:35
+	// avec "last cmd" valant un FLOTTANT (-1.0f, +1.0f, -0.9f), donc nos
+	// propres coordonnees de sommets lues comme une commande, et l'arithmetique
+	// du remplissage tombait pile dans cette fenetre.
+	//
+	// VERDICT : le temps de survie n'a PAS suivi la taille -- crash a 1:20 avec
+	// 8 Mio comme avec 1 Mio. Le bouclage du FIFO est donc HORS DE CAUSE ; ne
+	// pas y revenir. La piste restante est un methode emise avec un mauvais
+	// compte de mots, dont un parametre flottant finit lu comme en-tete.
 	psglInit(&options);
+	ps3gl_log("C1 after psglInit");
 
 	memset(&params, 0, sizeof params);
 	params.enable = PSGL_DEVICE_PARAMETERS_WIDTH_HEIGHT
@@ -175,14 +205,22 @@ boolean LoadGL(void)
 		return false;
 	}
 
+	ps3gl_log("C2 after psglCreateDeviceExtended/Context");
+
 	psglMakeCurrent(ps3gl_context, ps3gl_device);
+	ps3gl_log("C3 after psglMakeCurrent");
+
 	psglGetRenderBufferDimensions(ps3gl_device, &ps3gl_render_w, &ps3gl_render_h);
 
 	CONS_Printf("PSGL: rendu %ux%u, sortie %ux%u\n",
 		(unsigned)ps3gl_render_w, (unsigned)ps3gl_render_h,
 		PS3GL_OUT_W, PS3GL_OUT_H);
 
-	return SetupGLfunc();
+	{
+		boolean r = SetupGLfunc();
+		ps3gl_log("C4 after SetupGLfunc");
+		return r;
+	}
 }
 
 boolean OglSdlSurface(INT32 w, INT32 h)
@@ -205,6 +243,7 @@ boolean OglSdlSurface(INT32 w, INT32 h)
 		GL_DBG_Printf("Extensions: %s\n", gl_extensions);
 		first_init = true;
 	}
+	ps3gl_log("C5 after pglGetString trio");
 
 	// Pas d'anisotropie sur cette pile : l'extension n'est pas annoncee, et
 	// demander GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT a un glGetIntegerv qui ne
@@ -213,14 +252,19 @@ boolean OglSdlSurface(INT32 w, INT32 h)
 	maximumAnisotropy = 1;
 
 	SetupGLFunc4();
+	ps3gl_log("C6 after SetupGLFunc4");
 
 	granisotropicmode_cons_t[1].value = maximumAnisotropy;
 
 	SetModelView(w, h);
+	ps3gl_log("C7 after SetModelView");
 	SetStates();
+	ps3gl_log("C8 after SetStates");
 	pglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	ps3gl_log("C9 after pglClear");
 
 	HWR_Startup();
+	ps3gl_log("C10 after HWR_Startup");
 	textureformatGL = GL_RGBA;
 
 	return true;
@@ -234,17 +278,80 @@ void OglSdlFinishUpdate(boolean waitvbl)
 {
 	(void)waitvbl; // psglSwap se cale sur le vblank ; pas d'intervalle a regler
 
+	// 2026-09-03 -- battement de la couche GL, sur disque, pour la VRAIE
+	// CONSOLE (aucun journal d'emulateur la-bas).
+	//
+	// Il repond a UNE question, celle qui a coute le plus de temps sous RPCS3 :
+	// quand ca se fige, est-ce la boucle de jeu qui s'arrete, ou l'echange
+	// d'image ? psdebugS.txt bat une fois par seconde cote jeu ; celui-ci
+	// compte les echanges REELLEMENT termines. Si psdebugS avance et pas
+	// celui-ci, le blocage est dans psglSwap ; s'ils s'arretent ensemble, il
+	// est en amont.
+	//
+	// Une ligne toutes les 60 images, avec fflush + fclose : la trace survit au
+	// gel. Recuperer psdebugGL.txt par FTP dans /dev_hdd0/game/<APPID>/USRDIR/.
+	{
+		static unsigned long ps3gl_swaps = 0;
+
+		if ((ps3gl_swaps % 60UL) == 0UL)
+		{
+			FILE *f = fopen(PS3_DebugPath("psdebugGL.txt"), "a");
+			if (f)
+			{
+				fprintf(f, "swap %lu\n", ps3gl_swaps);
+				fflush(f);
+				fclose(f);
+			}
+		}
+		ps3gl_swaps++;
+	}
+
+#if defined(_PS3) && !defined(PS3_USE_FINAL_TEXTURE)
+	// 2026-09-02 -- on saute la texture d'ecran finale sur PS3.
+	//
+	// MakeScreenFinalTexture() capture l'ecran avec
+	//   pglCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ...)   (r_opengl.c:3549)
+	// et DrawScreenFinalTexture() la redessine ensuite par-dessus tout l'ecran,
+	// juste avant le swap.
+	//
+	// Or le glCopyTexImage2D de PSGL ne sait copier QUE le tampon de
+	// profondeur : psgl_depth_copy_internal_format() renvoie 0 pour tout ce qui
+	// n'est pas GL_DEPTH_COMPONENT*, et la fonction sort sans rien faire
+	// (verifie dans psgl_context.c, pas suppose). La texture reste donc vide,
+	// et on recouvrait la scene avec du vide a chaque frame -- 60 fps, ecran
+	// noir.
+	//
+	// Consequence assumee : les effets qui relisent l'ecran precedent (wipes)
+	// ne fonctionneront pas tant que la copie couleur n'est pas implementee
+	// cote PSGL. Rebasculer avec -DPS3_USE_FINAL_TEXTURE.
+	psglSwap();
+#else
 	HWR_MakeScreenFinalTexture();
 	HWR_DrawScreenFinalTexture((int)ps3gl_render_w, (int)ps3gl_render_h);
 
 	psglSwap();
+#endif
 
-	GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
+	// 2026-09-02 -- ps3gl_render_w/h, PAS realwidth/realheight.
+	//
+	// ogl_sdl.c utilise realwidth/realheight parce que sur PC ce SONT les
+	// dimensions du contexte GL. Ici non : PSGL rend en 1280x720 (ligne
+	// ci-dessus, deja correcte) tandis que realwidth/realheight suivent
+	// vid.width/height, soit 320x200. Le ciseau restait donc pose sur un coin
+	// de 320x200 et n'etait jamais retabli avant la frame suivante : tout le
+	// rendu d'apres se retrouvait decoupe dans ce coin. Symptome : ecran noir
+	// avec un liseré sur le bord gauche.
+	GClipRect(0, 0, (INT32)ps3gl_render_w, (INT32)ps3gl_render_h, NZCLIP_PLANE);
 
+#if !defined(_PS3) || defined(PS3_USE_FINAL_TEXTURE)
 	// Comme dans ogl_sdl.c : on redessine la texture d'ecran final dans
 	// l'autre tampon, a sa position d'origine, pour que les effets qui lisent
 	// l'ecran precedent puissent le faire apres ce point.
-	HWR_DrawScreenFinalTexture(realwidth, realheight);
+	//
+	// 2026-09-02 -- sautee sur PS3 pour la meme raison que ci-dessus : la
+	// texture est vide, donc ce dessin ne fait que repeindre du noir.
+	HWR_DrawScreenFinalTexture((int)ps3gl_render_w, (int)ps3gl_render_h);
+#endif
 }
 
 EXPORT void HWRAPI(OglSdlSetPalette) (RGBA_t *palette, RGBA_t *pgamma)
@@ -253,6 +360,7 @@ EXPORT void HWRAPI(OglSdlSetPalette) (RGBA_t *palette, RGBA_t *pgamma)
 	UINT32 redgamma = pgamma->s.red, greengamma = pgamma->s.green,
 		bluegamma = pgamma->s.blue;
 
+	PS3_Mark("SM7 OglSdlSetPalette entry");
 	for (i = 0; i < 256; i++)
 	{
 		myPaletteData[i].s.red   = (UINT8)MIN((palette[i].s.red   * redgamma)  /127, 255);
@@ -260,7 +368,9 @@ EXPORT void HWRAPI(OglSdlSetPalette) (RGBA_t *palette, RGBA_t *pgamma)
 		myPaletteData[i].s.blue  = (UINT8)MIN((palette[i].s.blue  * bluegamma) /127, 255);
 		myPaletteData[i].s.alpha = palette[i].s.alpha;
 	}
+	PS3_Mark("SM8 palette loop done, before Flush");
 	Flush();
+	PS3_Mark("SM9 Flush done");
 }
 
 void OglPS3Shutdown(void)

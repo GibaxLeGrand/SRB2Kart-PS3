@@ -119,11 +119,28 @@ void SCR_SetMode(void)
 	// (same underlying issue as the redundant I_StartupGraphics() call
 	// fixed earlier). Just clear the pending flag and skip the re-set.
 	setmodeneeded = 0;
+	// 2026-09-03 -- marqueurs CONSERVES pour le test sur vraie console.
+	//
+	// Poses le 02/09 pour encadrer un plantage dans heapFree ; la cause est
+	// trouvee depuis (destruction de texture PSGL depuis Flush(), voir
+	// r_opengl.c), mais elle n'est encore que CONTOURNEE, par une fuite
+	// volontaire. Tant que ce contournement tient lieu de correctif, tracer ce
+	// chemin garde son interet -- et sur console il n'existe aucun journal
+	// d'emulateur : ces lignes vont dans psdebugS.txt, recuperable par FTP.
+	//
+	// Cout negligeable : un changement de palette est rare, pas par image.
+	PS3_Mark("SM1 SCR_SetMode entry, PS3 branch done");
 #else
 	VID_SetMode(--setmodeneeded);
 #endif
 
+#ifdef _PS3
+	PS3_Mark("SM2 before V_SetPalette");
+#endif
 	V_SetPalette(0);
+#ifdef _PS3
+	PS3_Mark("SM3 after V_SetPalette");
+#endif
 
 	//
 	//  setup the right draw routines for either 8bpp or 16bpp

@@ -12,6 +12,9 @@
 /// \brief load and convert graphics to the hardware format
 
 #include "../doomdef.h"
+#ifdef _PS3
+#include "../d_main.h" // PS3_Mark, temporary bisection markers -- see HWR_SetPalette
+#endif
 
 #ifdef HWRENDER
 #include "hw_main.h"
@@ -569,7 +572,13 @@ void HWR_SetPalette(RGBA_t *palette)
 	gamma_correction.s.red   = (UINT8)cv_grgammared.value;
 	gamma_correction.s.green = (UINT8)cv_grgammagreen.value;
 	gamma_correction.s.blue  = (UINT8)cv_grgammablue.value;
+#ifdef _PS3
+	PS3_Mark("SM4 before HWD.pfnSetPalette");
+#endif
 	HWD.pfnSetPalette(palette, &gamma_correction);
+#ifdef _PS3
+	PS3_Mark("SM5 after HWD.pfnSetPalette");
+#endif
 
 	// hardware driver will flush there own cache if cache is non paletized
 	// now flush data texture cache so 32 bit texture are recomputed
@@ -578,6 +587,9 @@ void HWR_SetPalette(RGBA_t *palette)
 		Z_FreeTags(PU_HWRCACHE, PU_HWRCACHE);
 		Z_FreeTags(PU_HWRCACHE_UNLOCKED, PU_HWRCACHE_UNLOCKED);
 	}
+#ifdef _PS3
+	PS3_Mark("SM6 HWR_SetPalette return");
+#endif
 }
 
 // --------------------------------------------------------------------------
@@ -825,14 +837,28 @@ static void HWR_DrawFadeMaskInCache(GLMipmap_t *mipmap, INT32 pblockwidth, INT32
 	W_ReadLump(fademasklumpnum, Z_Malloc(W_LumpLength(fademasklumpnum),
 		PU_HWRCACHE, &flat));
 
-	stepy = ((INT32)SHORT(fmheight)<<FRACBITS)/pblockheight;
-	stepx = ((INT32)SHORT(fmwidth)<<FRACBITS)/pblockwidth;
+	// 2026-09-02 -- CORRECTIF GROS-BOUTISTE (bug latent d'upstream).
+	//
+	// fmwidth/fmheight ne viennent PAS du WAD : HWR_CacheFadeMask les pose en
+	// dur (640/400, 320/200, 160/100, 80/50) d'apres la TAILLE du lump. Leur
+	// appliquer SHORT() -- qui est SWAP_SHORT des que SRB2_BIG_ENDIAN est
+	// defini, donc sur PPC -- echange les octets d'une valeur deja en ordre
+	// hote : SHORT(320) = 16385, SHORT(200) = -14336.
+	//
+	// Le pas de ligne devient alors absurde et `src` sort du tampon des la
+	// premiere iteration. Symptome sur PS3 : lecture en memoire non mappee
+	// (0x4c22d558) dans HWR_DrawFadeMaskInCache, pendant le wipe.
+	//
+	// Invisible sur PC parce que SHORT() y est l'identite. Hors du chemin
+	// G_Ticker/P_Ticker, donc sans effet sur le determinisme reseau.
+	stepy = ((INT32)fmheight<<FRACBITS)/pblockheight;
+	stepx = ((INT32)fmwidth<<FRACBITS)/pblockwidth;
 	posy = 0;
 	for (j = 0; j < pblockheight; j++)
 	{
 		posx = 0;
 		dest = &block[j*blockwidth]; // 1bpp
-		src = &flat[(posy>>FRACBITS)*SHORT(fmwidth)];
+		src = &flat[(posy>>FRACBITS)*fmwidth]; // 2026-09-02 : idem, pas de SHORT() ici
 		for (i = 0; i < pblockwidth;i++)
 		{
 			// fademask bpp is always 1, and is used just for alpha

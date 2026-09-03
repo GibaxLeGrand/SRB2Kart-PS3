@@ -102,10 +102,30 @@ void HWR_DrawPatch(GLPatch_t *gpatch, INT32 x, INT32 y, INT32 option)
 	if (option & V_NOSCALESTART)
 		sdupx = sdupy = 2.0f;
 
-	v[0].x = v[3].x = (x*sdupx-SHORT(gpatch->leftoffset)*pdupx)/vid.width - 1;
-	v[2].x = v[1].x = (x*sdupx+(SHORT(gpatch->width)-SHORT(gpatch->leftoffset))*pdupx)/vid.width - 1;
-	v[0].y = v[1].y = 1-(y*sdupy-SHORT(gpatch->topoffset)*pdupy)/vid.height;
-	v[2].y = v[3].y = 1-(y*sdupy+(SHORT(gpatch->height)-SHORT(gpatch->topoffset))*pdupy)/vid.height;
+	// 2026-09-03 -- CORRECTIF GROS-BOUTISTE (bug latent d'upstream).
+	//
+	// Tous les acces a gpatch->width/height/leftoffset/topoffset de ce fichier
+	// passaient par SHORT(). C'est un double echange d'octets : hw_cache.c les
+	// a DEJA convertis en ordre hote au moment de la mise en cache
+	//   grPatch->width = SHORT(patch->width);   (hw_cache.c:424-427)
+	// donc les reappliquer SHORT() ici les recasse sur PPC.
+	//
+	// Mesure a l'appui, sur les sommets reellement televerses au RSX : un quad
+	// sortait en (-1, 1) -> (-103.394, 144.355), soit une largeur de -16383 --
+	// la signature d'un petit entier passe une fois de trop dans l'echangeur.
+	// Toute la geometrie 2D partait hors du volume de clipping et se reduisait
+	// a une ligne a l'ecran.
+	//
+	// Invisible sur PC, ou SHORT() est l'identite. Meme famille que le
+	// correctif du masque de fondu dans hw_cache.c. Hors chemin
+	// G_Ticker/P_Ticker, donc sans effet sur le determinisme reseau.
+	//
+	// Seul SHORT() conserve dans ce fichier : l'en-tete TGA ecrit sur disque
+	// (HWR_ScreenShot), qui est une vraie conversion de format de fichier.
+	v[0].x = v[3].x = (x*sdupx-gpatch->leftoffset*pdupx)/vid.width - 1;
+	v[2].x = v[1].x = (x*sdupx+(gpatch->width-gpatch->leftoffset)*pdupx)/vid.width - 1;
+	v[0].y = v[1].y = 1-(y*sdupy-gpatch->topoffset*pdupy)/vid.height;
+	v[2].y = v[3].y = 1-(y*sdupy+(gpatch->height-gpatch->topoffset)*pdupy)/vid.height;
 
 	v[0].z = v[1].z = v[2].z = v[3].z = 1.0f;
 
@@ -176,13 +196,13 @@ void HWR_DrawFixedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscale,
 
 		// left offset
 		if (option & V_FLIP)
-			offsetx = (float)(SHORT(gpatch->width) - SHORT(gpatch->leftoffset)) * fscale;
+			offsetx = (float)(gpatch->width - gpatch->leftoffset) * fscale;
 		else
-			offsetx = (float)SHORT(gpatch->leftoffset) * fscale;
+			offsetx = (float)gpatch->leftoffset * fscale;
 
 		// top offset
 		// TODO: make some kind of vertical version of V_FLIP, maybe by deprecating V_OFFSET in future?!?
-		offsety = (float)SHORT(gpatch->topoffset) * fscale;
+		offsety = (float)gpatch->topoffset * fscale;
 
 		if ((option & (V_NOSCALESTART|V_OFFSET)) == (V_NOSCALESTART|V_OFFSET)) // Multiply by dupx/dupy for crosshairs
 		{
@@ -210,7 +230,7 @@ void HWR_DrawFixedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscale,
 			// if it's meant to cover the whole screen, black out the rest
 			// cx and cy are possibly *slightly* off from float maths
 			// This is done before here compared to software because we directly alter cx and cy to centre
-			if (cx >= -0.1f && cx <= 0.1f && SHORT(gpatch->width) == BASEVIDWIDTH && cy >= -0.1f && cy <= 0.1f && SHORT(gpatch->height) == BASEVIDHEIGHT)
+			if (cx >= -0.1f && cx <= 0.1f && gpatch->width == BASEVIDWIDTH && cy >= -0.1f && cy <= 0.1f && gpatch->height == BASEVIDHEIGHT)
 			{
 				// Need to temporarily cache the real patch to get the colour of the top left pixel
 				patch_t *realpatch = W_CacheLumpNumPwad(gpatch->wadnum, gpatch->lumpnum, PU_STATIC);
@@ -241,13 +261,13 @@ void HWR_DrawFixedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscale,
 
 	if (pscale != FRACUNIT)
 	{
-		fwidth = (float)SHORT(gpatch->width) * fscale * dupx;
-		fheight = (float)SHORT(gpatch->height) * fscale * dupy;
+		fwidth = (float)gpatch->width * fscale * dupx;
+		fheight = (float)gpatch->height * fscale * dupy;
 	}
 	else
 	{
-		fwidth = (float)SHORT(gpatch->width) * dupx;
-		fheight = (float)SHORT(gpatch->height) * dupy;
+		fwidth = (float)gpatch->width * dupx;
+		fheight = (float)gpatch->height * dupy;
 	}
 
 	// positions of the cx, cy, are between 0 and vid.width/vid.height now, we need them to be between -1 and 1
@@ -345,8 +365,8 @@ void HWR_DrawCroppedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscal
 	dupx = dupy = (dupx < dupy ? dupx : dupy);
 	fscale = FIXED_TO_FLOAT(pscale);
 
-	cy -= (float)SHORT(gpatch->topoffset) * fscale;
-	cx -= (float)SHORT(gpatch->leftoffset) * fscale;
+	cy -= (float)gpatch->topoffset * fscale;
+	cx -= (float)gpatch->leftoffset * fscale;
 
 	if (!(option & V_NOSCALESTART))
 	{
@@ -358,7 +378,7 @@ void HWR_DrawCroppedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscal
 			// if it's meant to cover the whole screen, black out the rest
 			// cx and cy are possibly *slightly* off from float maths
 			// This is done before here compared to software because we directly alter cx and cy to centre
-			if (cx >= -0.1f && cx <= 0.1f && SHORT(gpatch->width) == BASEVIDWIDTH && cy >= -0.1f && cy <= 0.1f && SHORT(gpatch->height) == BASEVIDHEIGHT)
+			if (cx >= -0.1f && cx <= 0.1f && gpatch->width == BASEVIDWIDTH && cy >= -0.1f && cy <= 0.1f && gpatch->height == BASEVIDHEIGHT)
 			{
 				// Need to temporarily cache the real patch to get the colour of the top left pixel
 				patch_t *realpatch = W_CacheLumpNumPwad(gpatch->wadnum, gpatch->lumpnum, PU_STATIC);
@@ -396,11 +416,11 @@ void HWR_DrawCroppedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscal
 	if (fheight > h - sy)
 		fheight = h - sy;
 
-	if (fwidth > SHORT(gpatch->width))
-		fwidth = SHORT(gpatch->width);
+	if (fwidth > gpatch->width)
+		fwidth = gpatch->width;
 
-	if (fheight > SHORT(gpatch->height))
-		fheight = SHORT(gpatch->height);
+	if (fheight > gpatch->height)
+		fheight = gpatch->height;
 
 	if (pscale != FRACUNIT)
 	{
@@ -430,10 +450,10 @@ void HWR_DrawCroppedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscal
 
 	v[0].z = v[1].z = v[2].z = v[3].z = 1.0f;
 
-	v[0].s = v[3].s = ((sx)/(float)SHORT(gpatch->width) )*gpatch->max_s;
-	v[2].s = v[1].s = ((w )/(float)SHORT(gpatch->width) )*gpatch->max_s;
-	v[0].t = v[1].t = ((sy)/(float)SHORT(gpatch->height))*gpatch->max_t;
-	v[2].t = v[3].t = ((h )/(float)SHORT(gpatch->height))*gpatch->max_t;
+	v[0].s = v[3].s = ((sx)/(float)gpatch->width )*gpatch->max_s;
+	v[2].s = v[1].s = ((w )/(float)gpatch->width )*gpatch->max_s;
+	v[0].t = v[1].t = ((sy)/(float)gpatch->height)*gpatch->max_t;
+	v[2].t = v[3].t = ((h )/(float)gpatch->height)*gpatch->max_t;
 
 	flags = PF_Translucent|PF_NoDepthTest;
 
