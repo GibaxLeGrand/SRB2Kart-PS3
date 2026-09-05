@@ -22,6 +22,7 @@
 #endif
 
 #include <stdarg.h>
+#include <stdlib.h> // malloc, pour le tampon de conversion de texture (voir SetTexture)
 #include <math.h>
 #include "r_opengl.h"
 #include "r_vbo.h"
@@ -1549,10 +1550,39 @@ EXPORT void HWRAPI(SetTexture) (FTextureInfo *pTexInfo)
 	else
 	{
 		// Download a mipmap
-		static RGBA_t   tex[2048*2048];
-		const GLvoid   *ptex = tex;
+		//
+		// 2026-09-05 -- ce tampon etait `static RGBA_t tex[2048*2048]`, soit
+		// 16 Mo de BSS, et c'est ce qui empechait l'EBOOT OpenGL de se charger
+		// sur une vraie PS3.
+		//
+		// Mesure (paquets D et E du 05/09, voir sdl/i_ps3_bssprobe.c) : un
+		// build LOGICIEL identique au temoin qui demarre, auquel on ajoute
+		// 16 Mo de BSS et RIEN d'autre, ne se charge plus du tout -- pas meme
+		// son constructeur statique. Les deux EBOOT ne different que de 112
+		// octets sur disque : le BSS n'occupe aucun octet de fichier, seul le
+		// memsz du segment RW change (0x265eb8 -> 0x1265eb8).
+		//
+		// Alloue au tas au premier usage a la place. Meme duree de vie (jamais
+		// libere, comme le statique), meme cout amorti, mais l'image statique
+		// du processus reste petite. 2048x2048 est la taille maximale de
+		// texture que ce chemin accepte, elle ne depend pas du materiel.
+		static RGBA_t  *tex = NULL;
+		const GLvoid   *ptex;
 		INT32             w, h;
 		GLuint texnum = 0;
+
+		if (tex == NULL)
+		{
+			tex = malloc(2048 * 2048 * sizeof (RGBA_t));
+			if (tex == NULL)
+			{
+				// Rien d'utile a dessiner sans tampon de conversion, et mieux
+				// vaut une texture manquante qu'un ecrasement memoire.
+				SetNoTexture();
+				return;
+			}
+		}
+		ptex = tex;
 
 		pglGenTextures(1, &texnum);
 		//GL_DBG_Printf("DownloadMipmap %d\n", (INT32)texnum, pTexInfo->grInfo.data);

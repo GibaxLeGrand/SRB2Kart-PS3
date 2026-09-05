@@ -37,7 +37,14 @@ size_t ps3_bss_probe_size(void);
 // Global non statique : ni le compilateur ni le lieur ne peuvent l'ecarter, et
 // l'objet est cite explicitement dans la ligne de liens. 16 Mo exactement, la
 // meme taille que tex[2048*2048] avec RGBA_t sur 4 octets.
-char ps3_bss_probe[16u * 1024u * 1024u];
+// Taille en Mo, fixee par PS3_BSS_PROBE=<n> (voir sdl/Makefile.cfg). 16 par
+// defaut, la taille de tex[2048*2048] ; une valeur plus petite sert a encadrer
+// le seuil a partir duquel le chargement echoue.
+#ifndef PS3_BSS_PROBE_MB
+#define PS3_BSS_PROBE_MB 16
+#endif
+
+char ps3_bss_probe[(unsigned)PS3_BSS_PROBE_MB * 1024u * 1024u];
 
 size_t ps3_bss_probe_size(void)
 {

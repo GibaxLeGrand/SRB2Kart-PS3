@@ -67,8 +67,8 @@ else
 	#   BSSPROBE=1  -> +16 Mo de BSS seuls
 	#   FORCEPSGL=1 -> tout le code PSGL seul
 	if [ -n "$BSSPROBE" ]; then
-		HW_FLAGS="$HW_FLAGS PS3_BSS_PROBE=1"
-		echo "=== renderer : logiciel + 16 Mo de BSS (sonde) ==="
+		HW_FLAGS="$HW_FLAGS PS3_BSS_PROBE=$BSSPROBE"
+		echo "=== renderer : logiciel + $BSSPROBE Mo de BSS (sonde) ==="
 	elif [ -n "$FORCEPSGL" ]; then
 		HW_FLAGS="$HW_FLAGS PS3_FORCE_PSGL=1"
 		echo "=== renderer : logiciel + PSGL lie de force (sonde) ==="
