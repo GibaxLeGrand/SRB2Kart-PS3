@@ -83,6 +83,26 @@ sprxlinker "$STAGE/eboot.elf"
 rm -f "$STAGE/eboot.elf"
 echo "EBOOT.BIN : $(stat -c%s "$STAGE/USRDIR/EBOOT.BIN") octets, NPDRM contentid=$CONTENTID"
 
+# 2026-09-05 -- renderer.txt embarque. Corrige un test materiel fausse.
+#
+# i_video.c choisit son renderer en LISANT ce fichier (I_StartupGraphics) et,
+# s'il est absent, retombe sur render_soft -- "Using default software
+# renderer." Le paquet ne l'installait pas : le premier essai sur vraie console
+# a donc lance le renderer LOGICIEL avec un binaire construit pour OpenGL, et
+# on a cru tester PSGL alors qu'on ne le testait pas du tout.
+#
+# On l'ecrit explicitement d'apres GLRENDER, la meme variable que celle qui
+# pilote build_srb2kart_ps3.sh, pour que paquet et binaire ne puissent pas
+# diverger. Le jeu reecrit ce fichier lui-meme quand il change de renderer,
+# donc l'embarquer ne fige rien.
+if [ -n "${GLRENDER:-}" ]; then
+	printf 'opengl\n' > "$STAGE/USRDIR/renderer.txt"
+	echo "renderer.txt : opengl"
+else
+	printf 'software\n' > "$STAGE/USRDIR/renderer.txt"
+	echo "renderer.txt : software"
+fi
+
 # Game data.  Everything the RPCS3 runs use, so the hardware test does not
 # change two things at once.  mdls/ is deliberately left out: those are OpenGL
 # models and this build is NOHW, so they would be 17MB of dead weight.

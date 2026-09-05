@@ -153,6 +153,49 @@ ChDirToExe (void)
 #pragma GCC diagnostic ignored "-Wmissing-noreturn"
 #endif
 
+#ifdef _PS3
+// 2026-09-05 -- sonde de demarrage, deux etages.
+//
+// Le test sur console reelle du 05/09 n'a rien rapporte pour le build OpenGL :
+// aucun journal, pas meme "M1 before D_SRB2Main". Impossible de dire si le
+// processus mourait au chargement du SELF, dans l'init C, ou dans main().
+// Deux raisons a cette cecite, corrigees ici :
+//
+//   1. psdebug_boot.txt etait ouvert en "w". Le lancement suivant (le temoin
+//      logiciel) ecrasait donc la trace OpenGL. -> mode "a".
+//   2. Rien ne marquait le pre-main. -> ps3_boot_ctor(), place dans .ctors
+//      (ce toolchain utilise .ctors, pas .init_array : verifie au readelf).
+//
+// Lecture : C0 sans B1 => l'init C tourne, main() n'est pas atteint.
+//           ni C0 ni B1 => le loader a refuse le SELF.
+// Chaque ligne porte __DATE__/__TIME__ et le renderer, pour qu'on sache
+// toujours quel binaire a produit quelle trace.
+#ifdef HWRENDER
+#define PS3_BOOT_RENDERER "opengl"
+#else
+#define PS3_BOOT_RENDERER "software"
+#endif
+
+static void ps3_bootmark(const char *what)
+{
+	// Chemin absolu : srb2home vaut encore "." a ce stade, et le repertoire
+	// courant n'est pas USRDIR quand on est lance depuis le XMB.
+	FILE *f = fopen(PS3_INSTALLDIR "/psdebug_boot.txt", "a");
+	if (f)
+	{
+		fprintf(f, "%s [%s, bati %s %s]\n", what, PS3_BOOT_RENDERER, __DATE__, __TIME__);
+		fflush(f);
+		fclose(f);
+	}
+}
+
+static void ps3_boot_ctor(void) __attribute__((constructor));
+static void ps3_boot_ctor(void)
+{
+	ps3_bootmark("C0 constructeur statique (pre-main)");
+}
+#endif // _PS3
+
 #ifdef FORCESDLMAIN
 int SDL_main(int argc, char **argv)
 #else
@@ -171,7 +214,7 @@ int main(int argc, char **argv)
 	// working directory (not USRDIR when launched from the XMB), so if the
 	// file is missing the process died before entering main.
 	{
-		FILE *ps3boot = fopen(PS3_INSTALLDIR "/psdebug_boot.txt", "w");
+		FILE *ps3boot = fopen(PS3_INSTALLDIR "/psdebug_boot.txt", "a");  // 2026-09-05 : "w" effacait la trace du lancement precedent
 		if (ps3boot)
 		{
 			fprintf(ps3boot, "B1 main() reached, render %dx%d, built %s %s, argc=%d, argv0=%s\n",
@@ -196,6 +239,9 @@ int main(int argc, char **argv)
 #endif
 
 	logdir = D_Home();
+#ifdef _PS3
+	ps3_bootmark("B2 apres D_Home");
+#endif
 
 #ifdef LOGMESSAGES
 #ifdef DEFAULTDIR
@@ -210,6 +256,9 @@ int main(int argc, char **argv)
 
 	//I_OutputMsg("I_StartupSystem() ...\n");
 	I_StartupSystem();
+#ifdef _PS3
+	ps3_bootmark("B3 apres I_StartupSystem");
+#endif
 #if defined (_WIN32)
 	{
 #if 0 // just load the DLL

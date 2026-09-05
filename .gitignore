@@ -35,3 +35,9 @@ Win32_LIB_ASM_Release
 /bin/Release/
 /objs/SDL/
 *.bak-*
+
+# Ressources XMB (ps3/assets_ps3/) : PIC1/BACKGROUND.png et SND0.AT3 sont
+# derives des donnees du jeu, comme les WAD -- pas versionnes. Le script
+# d'empaquetage les prend s'ils sont la et les ignore sinon (silencieusement,
+# c'est un piege connu : verifier la sortie de package_srb2kart_pkg.sh).
+/ps3/assets_ps3/

@@ -50,7 +50,16 @@ command -v "${PREFIX}-gcc" >/dev/null || { echo "MANQUE: ${PREFIX}-gcc (PATH n'a
 # tant que ce n'est pas verifie.
 if [ -n "$GLRENDER" ]; then
 	HW_FLAGS="PS3DK_GLCOMPAT=$SCRIPT_DIR/glcompat"
-	echo "=== renderer : OpenGL (PSGL) ==="
+	# 2026-09-05 -- LOCALCELLFS=1 : fournit nos propres cellFs* (sdl/i_ps3_cellfs.c)
+	# au lieu de lier -lfs_stub, ce qui supprime l'import du module PRX sys_fs.
+	# C'est la seule difference d'imports PRX entre l'EBOOT OpenGL et l'EBOOT
+	# logiciel, et le logiciel est celui qui demarre sur console reelle.
+	if [ -n "$LOCALCELLFS" ]; then
+		HW_FLAGS="$HW_FLAGS PS3_LOCAL_CELLFS=1"
+		echo "=== renderer : OpenGL (PSGL), cellFs local (pas de sys_fs) ==="
+	else
+		echo "=== renderer : OpenGL (PSGL) ==="
+	fi
 else
 	HW_FLAGS="NOHW=1"
 	echo "=== renderer : logiciel ==="
