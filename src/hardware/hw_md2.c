@@ -469,11 +469,76 @@ static void md2_loadBlendTexture(md2_t *model)
 // Don't spam the console, or the OS with fopen requests!
 static boolean nomd2s = false;
 
+// 2026-09-05 -- mdls.dat n'est plus relu a chaque appel.
+//
+// HWR_AddSpriteMD2() est appelee UNE FOIS PAR SPRITE depuis R_AddSpriteDefs
+// (r_things.c:449, chemin exclusif a OpenGL), et chaque appel faisait un fopen
+// + une analyse complete du fichier + un fclose. Avec ~790 sprites et un fopen
+// qui coute 1,7 a 2,6 ms sur le disque d'une PS3 (mesure : psdebugN.txt), le
+// demarrage restait bloque dans R_InitSprites -- le jeu paraissait gele entre
+// les marqueurs D4 et D5 de r_data.c, alors qu'il pietinait dans les E/S.
+//
+// Le fichier fait 5 Ko et ne change pas en cours d'execution : on le lit une
+// fois et on analyse depuis la memoire. Le format reconnu est identique a celui
+// du fscanf remplace, donc le comportement ne change nulle part ailleurs.
+static char    *md2_dat_text = NULL;
+static boolean  md2_dat_read = false;
+
+// Contenu de mdls.dat, ou NULL s'il est introuvable ou illisible.
+static const char *HWR_MDLSText(void)
+{
+	FILE *f;
+	long size;
+
+	if (md2_dat_read)
+		return md2_dat_text;
+	md2_dat_read = true;
+
+	f = fopen(va("%s"PATHSEP"%s", srb2home, "mdls.dat"), "rt");
+	if (!f)
+		f = fopen(va("%s"PATHSEP"%s", srb2path, "mdls.dat"), "rt");
+	if (!f)
+		return NULL;
+
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (size > 0 && size < 1024L * 1024L)
+	{
+		md2_dat_text = malloc((size_t)size + 1);
+		if (md2_dat_text)
+		{
+			size_t got = fread(md2_dat_text, 1, (size_t)size, f);
+			md2_dat_text[got] = '\0';
+		}
+	}
+	fclose(f);
+	return md2_dat_text;
+}
+
+// Un enregistrement depuis le curseur. Meme convention de retour que le fscanf
+// remplace : 4 si les quatre champs sont lus, 0 sinon.
+static int HWR_MDLSNext(const char **cursor, char *name, char *filename,
+						float *scale, float *offset)
+{
+	int consumed = 0;
+
+	if (!cursor || !*cursor || !**cursor)
+		return 0;
+	if (sscanf(*cursor, "%19s %31s %f %f%n", name, filename, scale, offset,
+			   &consumed) == 4)
+	{
+		*cursor += consumed;
+		return 4;
+	}
+	return 0;
+}
+
 void HWR_InitMD2(void)
 {
 	size_t i;
 	INT32 s;
-	FILE *f;
+	const char *cursor;
 	char name[20], filename[32];
 	float scale, offset;
 
@@ -499,19 +564,14 @@ void HWR_InitMD2(void)
 
 	// read the mdls.dat file
 	//Filename checking fixed ~Monster Iestyn and Golden
-	f = fopen(va("%s"PATHSEP"%s", srb2home, "mdls.dat"), "rt");
-
-	if (!f)
+	cursor = HWR_MDLSText();
+	if (!cursor)
 	{
-		f = fopen(va("%s"PATHSEP"%s", srb2path, "mdls.dat"), "rt");
-		if (!f)
-		{
-			CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
-			nomd2s = true;
-			return;
-		}
+		CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
+		nomd2s = true;
+		return;
 	}
-	while (fscanf(f, "%19s %31s %f %f", name, filename, &scale, &offset) == 4)
+	while (HWR_MDLSNext(&cursor, name, filename, &scale, &offset) == 4)
 	{
 		/*if (stricmp(name, "PLAY") == 0)
 		{
@@ -555,7 +615,6 @@ md2found:
 		// move on to next line...
 		continue;
 	}
-	fclose(f);
 }
 
 // 2026-09-02 -- "int" ici, "INT32" dans hw_md2.h:43. Sur x86 les deux sont le
@@ -564,7 +623,7 @@ md2found:
 // definition suit l'en-tete.
 void HWR_AddPlayerMD2(INT32 skin) // For MD2's that were added after startup
 {
-	FILE *f;
+	const char *cursor;
 	char name[20], filename[32];
 	float scale, offset;
 
@@ -575,21 +634,16 @@ void HWR_AddPlayerMD2(INT32 skin) // For MD2's that were added after startup
 
 	// read the mdls.dat file
 	//Filename checking fixed ~Monster Iestyn and Golden
-	f = fopen(va("%s"PATHSEP"%s", srb2home, "mdls.dat"), "rt");
-
-	if (!f)
+	cursor = HWR_MDLSText();
+	if (!cursor)
 	{
-		f = fopen(va("%s"PATHSEP"%s", srb2path, "mdls.dat"), "rt");
-		if (!f)
-		{
-			CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
-			nomd2s = true;
-			return;
-		}
+		CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
+		nomd2s = true;
+		return;
 	}
 
 	// Check for any MD2s that match the names of sprite names!
-	while (fscanf(f, "%19s %31s %f %f", name, filename, &scale, &offset) == 4)
+	while (HWR_MDLSNext(&cursor, name, filename, &scale, &offset) == 4)
 	{
 		if (stricmp(name, skins[skin].name) == 0)
 		{
@@ -605,13 +659,12 @@ void HWR_AddPlayerMD2(INT32 skin) // For MD2's that were added after startup
 	//CONS_Printf("MD2 for player skin %s not found\n", skins[skin].name);
 	md2_playermodels[skin].notfound = true;
 playermd2found:
-	fclose(f);
 }
 
 
 void HWR_AddSpriteMD2(size_t spritenum) // For MD2s that were added after startup
 {
-	FILE *f;
+	const char *cursor;
 	// name[18] is used to check for names in the mdls.dat file that match with sprites or player skins
 	// sprite names are always 4 characters long, and names is for player skins can be up to 19 characters long
 	char name[20], filename[32];
@@ -625,21 +678,16 @@ void HWR_AddSpriteMD2(size_t spritenum) // For MD2s that were added after startu
 
 	// Read the md2.dat file
 	//Filename checking fixed ~Monster Iestyn and Golden
-	f = fopen(va("%s"PATHSEP"%s", srb2home, "mdls.dat"), "rt");
-
-	if (!f)
+	cursor = HWR_MDLSText();
+	if (!cursor)
 	{
-		f = fopen(va("%s"PATHSEP"%s", srb2path, "mdls.dat"), "rt");
-		if (!f)
-		{
-			CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
-			nomd2s = true;
-			return;
-		}
+		CONS_Printf("%s %s\n", M_GetText("Error while loading mdls.dat:"), strerror(errno));
+		nomd2s = true;
+		return;
 	}
 
 	// Check for any MD2s that match the names of sprite names!
-	while (fscanf(f, "%19s %31s %f %f", name, filename, &scale, &offset) == 4)
+	while (HWR_MDLSNext(&cursor, name, filename, &scale, &offset) == 4)
 	{
 		if (stricmp(name, sprnames[spritenum]) == 0)
 		{
@@ -654,7 +702,6 @@ void HWR_AddSpriteMD2(size_t spritenum) // For MD2s that were added after startu
 	//CONS_Printf("MD2 for sprite %s not found\n", sprnames[spritenum]);
 	md2_models[spritenum].notfound = true;
 spritemd2found:
-	fclose(f);
 }
 
 // Define for getting accurate color brightness readings according to how the human eye sees them.
