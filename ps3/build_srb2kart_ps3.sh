@@ -62,7 +62,19 @@ if [ -n "$GLRENDER" ]; then
 	fi
 else
 	HW_FLAGS="NOHW=1"
-	echo "=== renderer : logiciel ==="
+	# 2026-09-05 -- bissection : ajouter UNE seule difference du build OpenGL a
+	# un build logiciel connu bon. Voir sdl/i_ps3_bssprobe.c pour le raisonnement.
+	#   BSSPROBE=1  -> +16 Mo de BSS seuls
+	#   FORCEPSGL=1 -> tout le code PSGL seul
+	if [ -n "$BSSPROBE" ]; then
+		HW_FLAGS="$HW_FLAGS PS3_BSS_PROBE=1"
+		echo "=== renderer : logiciel + 16 Mo de BSS (sonde) ==="
+	elif [ -n "$FORCEPSGL" ]; then
+		HW_FLAGS="$HW_FLAGS PS3_FORCE_PSGL=1"
+		echo "=== renderer : logiciel + PSGL lie de force (sonde) ==="
+	else
+		echo "=== renderer : logiciel ==="
+	fi
 fi
 
 echo "=== building srb2kart_ps3.elf ==="
