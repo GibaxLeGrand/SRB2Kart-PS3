@@ -36,6 +36,12 @@
 // et le demarrage calait la (marqueur D4 de r_data.c atteint, D5 jamais). Une
 // ligne tous les 64 sprites suffit a distinguer "ca avance lentement" de "c'est
 // vraiment bloque", pour un cout d'une douzaine d'ecritures.
+static void ps3spmsg(const char *msg)
+{
+	FILE *f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
+	if (f) { fputs(msg, f); fputc(10, f); fflush(f); fclose(f); }
+}
+
 static void ps3sp(unsigned cur, unsigned total)
 {
 	FILE *f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
@@ -63,6 +69,7 @@ static void ps3sp(unsigned cur, unsigned total)
 }
 #else
 #define ps3sp(cur, total)
+#define ps3spmsg(msg)
 #endif
 #include "p_slopes.h"
 #include "dehacked.h" // get_number (for thok)
@@ -499,6 +506,7 @@ void R_AddSpriteDefs(UINT16 wadnum)
 		}
 	}
 
+	ps3spmsg("SEND boucle sprites terminee");
 	nameonly(strcpy(wadname, wadfiles[wadnum]->filename));
 	CONS_Printf(M_GetText("%s added %d frames in %s sprites\n"), wadname, end-start, sizeu1(addsprites));
 }
@@ -650,15 +658,23 @@ void R_InitSprites(void)
 	// find sprites in each -file added pwad
 	for (i = 0; i < numwadfiles; i++)
 		R_AddSpriteDefs((UINT16)i);
+	ps3spmsg("SW toutes les passes de sprites terminees");
 
 	//
 	// now check for skins
 	//
 
 	// it can be is do before loading config for skin cvar possible value
+	ps3spmsg("SK1 avant R_InitSkins");
 	R_InitSkins();
+	ps3spmsg("SK2 apres R_InitSkins");
 	for (i = 0; i < numwadfiles; i++)
+	{
+		ps3spmsg("SK3 avant R_AddSkins");
 		R_AddSkins((UINT16)i);
+		ps3spmsg("SK4 apres R_AddSkins");
+	}
+	ps3spmsg("SK5 skins termines");
 
 	//
 	// check if all sprites have frames
