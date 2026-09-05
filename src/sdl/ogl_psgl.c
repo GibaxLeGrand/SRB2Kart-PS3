@@ -62,8 +62,12 @@ static GLuint       ps3gl_render_w, ps3gl_render_h;
 // 640x368 rendu pour 960x544 affiche, et la presentation est passee de 14,5 ms
 // a 7,4 ms -- exactement proportionnel aux pixels. Ici le scaler est RESC,
 // cote RSX, donc sans un cycle de PPE.
-#define PS3GL_OUT_W 1280u
-#define PS3GL_OUT_H 720u
+// 2026-09-05 -- PS3GL_OUT_W/H sont RETIRES. Les forcer configurait la sortie a
+// la definition de la console tout en dimensionnant le pas et les framebuffers
+// pour 1280x720 : ecran noir sur une PS3 en 1080p (voir LoadGL). Le rendu suit
+// desormais le mode video en cours. Rendre plus petit que la sortie reste
+// souhaitable pour la performance -- c'est la lecon du portage Vita ci-dessus --
+// mais cela demande un vrai RESC dans libPSGL, que PS3DK n'implemente pas.
 
 // ==========================================================================
 //                                              RESOLUTION DES POINTEURS
@@ -167,24 +171,46 @@ boolean LoadGL(void)
 	psglInit(&options);
 	ps3gl_log("C1 after psglInit");
 
+	// 2026-09-05 -- ON NE FORCE PLUS 1280x720. C'est ce qui donnait l'ecran noir
+	// sur vraie console.
+	//
+	// psgl_device_create() (PS3DK, psgl_context.c:2653) part de la definition
+	// reelle lue par videoGetState, puis nos parametres l'ecrasaient :
+	//
+	//     device->render_width = parameters->renderWidth;        // 1280
+	//     device->pitch        = align(render_width * 4, 64);    // 5120
+	//     config.resolution    = state.displayMode.resolution;   // reste 1080p
+	//     config.pitch         = device->pitch;                  // 5120
+	//     videoConfigure(VIDEO_PRIMARY, &config, NULL, 0);
+	//
+	// Autrement dit on configurait la sortie en 1920x1080 avec le pas d'une
+	// ligne de 1280 pixels, et on allouait les framebuffers en 1280x720. Le RSX
+	// balayait 1080 lignes de 7680 octets dans un tampon de 720 lignes de 5120.
+	// Ecran noir garanti.
+	//
+	// Sous RPCS3 la console rapporte 720p, donc tout concordait et le bug est
+	// reste invisible. La PS3 d'Alex sort en 1920x1080 (psdebugV.txt du 05/09 :
+	// "mode obtenu: resolution=1 (1920x1080)"), et plus rien ne concorde.
+	//
+	// PSGL_DEVICE_PARAMETERS_RESC_RENDER_WIDTH_HEIGHT donne le change mais PS3DK
+	// ne cable AUCUN RESC : il se contente de changer le pas. Rendre plus petit
+	// que la sortie demanderait donc d'implementer le rescaler dans libPSGL,
+	// c'est un autre chantier. En attendant, on prend la definition de la
+	// console, ce qui est correct partout.
 	memset(&params, 0, sizeof params);
-	params.enable = PSGL_DEVICE_PARAMETERS_WIDTH_HEIGHT
-	              | PSGL_DEVICE_PARAMETERS_RESC_RENDER_WIDTH_HEIGHT;
-	params.width        = PS3GL_OUT_W;
-	params.height       = PS3GL_OUT_H;
-	params.renderWidth  = PS3GL_OUT_W;
-	params.renderHeight = PS3GL_OUT_H;
+	params.enable = 0; // aucune surcharge : PSGL prend le mode video en cours
 
 	ps3gl_device = psglCreateDeviceExtended(&params);
+	ps3gl_log("C1a after psglCreateDeviceExtended");
 
 	if (!ps3gl_device)
 	{
-		// Repli : laisser PSGL choisir le mode video de la console plutot que
-		// d'abandonner le rendu materiel pour une resolution refusee.
+		// Repli : psglCreateDeviceAuto renseigne les formats couleur/profondeur
+		// et le triple tampon, la ou notre appel etendu les laisse a zero.
 		CONS_Alert(CONS_WARNING,
-			"PSGL: %ux%u refuse, on prend le mode automatique.\n",
-			PS3GL_OUT_W, PS3GL_OUT_H);
+			"PSGL: creation etendue refusee, on prend le mode automatique.\n");
 		ps3gl_device = psglCreateDeviceAuto(0, 0, 0);
+		ps3gl_log("C1b after psglCreateDeviceAuto");
 	}
 
 	if (!ps3gl_device)
@@ -193,9 +219,12 @@ boolean LoadGL(void)
 		return false;
 	}
 
+	ps3gl_log("C1c device obtenu");
+
 	ps3gl_context = psglGetCurrentContext();
 	if (!ps3gl_context)
 		ps3gl_context = psglCreateContext();
+	ps3gl_log("C1d after psglCreateContext");
 
 	if (!ps3gl_context)
 	{
@@ -211,10 +240,21 @@ boolean LoadGL(void)
 	ps3gl_log("C3 after psglMakeCurrent");
 
 	psglGetRenderBufferDimensions(ps3gl_device, &ps3gl_render_w, &ps3gl_render_h);
+	{
+		// La definition obtenue est l'information qui manquait : elle dit si la
+		// console est en 720p ou en 1080p, et donc a quelle taille on dessine.
+		GLuint dw = 0, dh = 0;
+		char line[96];
+		psglGetDeviceDimensions(ps3gl_device, &dw, &dh);
+		snprintf(line, sizeof line,
+			"C3b peripherique %ux%u, tampon de rendu %ux%u",
+			(unsigned)dw, (unsigned)dh,
+			(unsigned)ps3gl_render_w, (unsigned)ps3gl_render_h);
+		ps3gl_log(line);
+	}
 
-	CONS_Printf("PSGL: rendu %ux%u, sortie %ux%u\n",
-		(unsigned)ps3gl_render_w, (unsigned)ps3gl_render_h,
-		PS3GL_OUT_W, PS3GL_OUT_H);
+	CONS_Printf("PSGL: rendu %ux%u (mode video de la console)\n",
+		(unsigned)ps3gl_render_w, (unsigned)ps3gl_render_h);
 
 	{
 		boolean r = SetupGLfunc();
