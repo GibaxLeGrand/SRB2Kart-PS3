@@ -77,6 +77,16 @@ else
 	fi
 fi
 
+# 2026-09-05 -- l'estampille de demarrage doit identifier LE BUILD.
+#
+# psdebug_boot.txt affiche le __DATE__/__TIME__ de i_main.c. Si i_main.o n'est
+# pas recompile, deux paquets differents portent la meme estampille -- ce qui
+# est arrive entre les paquets I et J : seul hw_md2.o avait ete reconstruit, et
+# les journaux sont devenus impossibles a attribuer. On force donc sa
+# recompilation a chaque build : une seconde de compilation contre des
+# aller-retours perdus sur la console.
+rm -f "$REPO_ROOT/objs/SDL/Release/i_main.o"
+
 echo "=== building srb2kart_ps3.elf ==="
 cd "$REPO_ROOT/src"
 make SDL=1 PS3GCM=1 PREFIX="$PREFIX" NONX86=1 NOASM=1 $HW_FLAGS NOMIXER=1 NONET=1 NOPNG=1 \

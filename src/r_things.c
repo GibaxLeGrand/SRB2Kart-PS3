@@ -25,6 +25,45 @@
 #include "r_plane.h"
 #include "p_tick.h"
 #include "p_local.h"
+
+#ifdef _PS3
+#include <stdio.h>
+#include "d_main.h" // PS3_DebugPath
+
+// 2026-09-05 -- sonde de progression de la boucle des sprites.
+//
+// R_AddSpriteDefs appelle HWR_AddSpriteMD2 une fois par sprite en mode OpenGL,
+// et le demarrage calait la (marqueur D4 de r_data.c atteint, D5 jamais). Une
+// ligne tous les 64 sprites suffit a distinguer "ca avance lentement" de "c'est
+// vraiment bloque", pour un cout d'une douzaine d'ecritures.
+static void ps3sp(unsigned cur, unsigned total)
+{
+	FILE *f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
+	if (f)
+	{
+		char line[64];
+		unsigned n = 0;
+		line[n++] = 'S';
+		if (cur == 0) line[n++] = '0';
+		else { char d[12]; int k = 0;
+		       while (cur && k < 12) { d[k++] = (char)('0' + cur % 10u); cur /= 10u; }
+		       while (k-- > 0) line[n++] = d[k]; }
+		line[n++] = '/';
+		if (total == 0) line[n++] = '0';
+		else { char d[12]; int k = 0;
+		       while (total && k < 12) { d[k++] = (char)('0' + total % 10u); total /= 10u; }
+		       while (k-- > 0) line[n++] = d[k]; }
+		line[n] = 0;
+		fputs(line, f);
+		fputs(" boucle sprites", f);
+		fputc(10, f);
+		fflush(f);
+		fclose(f);
+	}
+}
+#else
+#define ps3sp(cur, total)
+#endif
 #include "p_slopes.h"
 #include "dehacked.h" // get_number (for thok)
 #include "d_netfil.h" // blargh. for nameonly().
@@ -439,6 +478,9 @@ void R_AddSpriteDefs(UINT16 wadnum)
 	//
 	for (i = 0; i < numsprites; i++)
 	{
+		if ((i & 63) == 0)
+			ps3sp((unsigned)i, (unsigned)numsprites);
+
 		spritename = sprnames[i];
 		if (spritename[4] && wadnum >= (UINT16)spritename[4])
 			continue;
