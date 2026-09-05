@@ -146,9 +146,20 @@ static void ps3gl_log(const char *where)
 	if (f) { fprintf(f, "%s\n", where); fflush(f); fclose(f); }
 }
 
+// 2026-09-05 -- crochet de trace de PSGL (PS3DK, psgl_context.c).
+//
+// psgl_device_create ne revenait jamais sur vraie console (paquet H : la trace
+// s'arretait apres psglInit). PS3DK expose desormais ce pointeur pour qu'on
+// voie l'interieur de la bibliotheque ; on y branche ps3gl_log, donc les
+// marqueurs D1..D10 de PSGL atterrissent dans psdebugC.txt, entremeles aux
+// notres. Declare ici plutot que dans un en-tete PS3DK : c'est un point
+// d'observation, pas une API.
+extern void (*psgl_trace_hook)(const char *);
+
 boolean LoadGL(void)
 {
 	ps3gl_log("C0 LoadGL entry");
+	psgl_trace_hook = ps3gl_log;
 	PSGLinitOptions options;
 	PSGLdeviceParameters params;
 
