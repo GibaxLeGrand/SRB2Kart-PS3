@@ -36,6 +36,84 @@
 // et le demarrage calait la (marqueur D4 de r_data.c atteint, D5 jamais). Une
 // ligne tous les 64 sprites suffit a distinguer "ca avance lentement" de "c'est
 // vraiment bloque", pour un cout d'une douzaine d'ecritures.
+// 2026-09-06 -- sonde par skin pour R_AddSkins.
+//
+// Le demarrage OpenGL cale dans R_AddSkins sur chars.kart, sur MATERIEL
+// uniquement : sous RPCS3 la fonction passe. Le champ decisif est le TEMPS
+// ECOULE entre deux skins -- des durees qui grandissent mais qui defilent, c'est
+// de la lenteur ; un dernier marqueur puis plus rien, c'est un blocage, et on
+// connait alors le nom du skin fautif.
+//
+// Les compteurs viennent de MakeBlock() (hw_cache.c) : ils disent combien de
+// patches ont ete convertis en RGBA pour ce skin et combien d'octets. C'est le
+// chiffre qui permet de calculer si l'hypothese "cout des E/S" tient.
+//
+// Formatage a la main : pas de printf, et surtout pas de sequence d'echappement
+// a faire traverser aux outils de patch.
+#ifdef HWRENDER
+extern UINT32 ps3_hwr_conv_count;
+extern UINT64 ps3_hwr_conv_bytes;
+#endif
+
+static char *ps3_u32(char *at, const char *end, UINT32 v)
+{
+	char d[12];
+	int n = 0;
+	if (v == 0) { if (at < end) *at++ = '0'; return at; }
+	while (v && n < 12) { d[n++] = (char)('0' + (v % 10u)); v /= 10u; }
+	while (n-- > 0 && at < end) *at++ = d[n];
+	return at;
+}
+
+static char *ps3_txt(char *at, const char *end, const char *t)
+{
+	while (*t && at < end) *at++ = *t++;
+	return at;
+}
+
+static void ps3skin(UINT32 idx, const char *name)
+{
+	static precise_t last = 0;
+	precise_t now = I_GetPreciseTime();
+	UINT32 dt_us, prec;
+	static UINT32 last_conv = 0;
+	static UINT64 last_bytes = 0;
+	UINT32 conv = 0, kb = 0;
+	char line[160];
+	char *at = line;
+	const char *end = line + sizeof(line) - 1;
+	FILE *f;
+
+	prec = (UINT32)I_GetPrecisePrecision();
+	if (prec == 0) prec = 1000000;
+	dt_us = (last == 0) ? 0 : (UINT32)(((UINT64)(now - last) * 1000000ULL) / prec);
+	last = now;
+
+#ifdef HWRENDER
+	conv = ps3_hwr_conv_count - last_conv;
+	kb   = (UINT32)((ps3_hwr_conv_bytes - last_bytes) / 1024ULL);
+	last_conv  = ps3_hwr_conv_count;
+	last_bytes = ps3_hwr_conv_bytes;
+#else
+	(void)last_conv; (void)last_bytes;
+#endif
+
+	at = ps3_txt(at, end, "SKIN ");
+	at = ps3_u32(at, end, idx);
+	at = ps3_txt(at, end, " ");
+	at = ps3_txt(at, end, name ? name : "?");
+	at = ps3_txt(at, end, " dt=");
+	at = ps3_u32(at, end, dt_us);
+	at = ps3_txt(at, end, "us conv=");
+	at = ps3_u32(at, end, conv);
+	at = ps3_txt(at, end, " Ko=");
+	at = ps3_u32(at, end, kb);
+	*at = 0;
+
+	f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
+	if (f) { fputs(line, f); fputc(10, f); fflush(f); fclose(f); }
+}
+
 static void ps3spmsg(const char *msg)
 {
 	FILE *f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
@@ -70,6 +148,7 @@ static void ps3sp(unsigned cur, unsigned total)
 #else
 #define ps3sp(cur, total)
 #define ps3spmsg(msg)
+#define ps3skin(idx, name)
 #endif
 #include "p_slopes.h"
 #include "dehacked.h" // get_number (for thok)
@@ -3160,6 +3239,7 @@ next_token:
 
 		R_FlushTranslationColormapCache();
 
+		ps3skin((UINT32)numskins, skin->name);
 		CONS_Printf(M_GetText("Added skin '%s'\n"), skin->name);
 #ifdef SKINVALUES
 		skin_cons_t[numskins].value = numskins;

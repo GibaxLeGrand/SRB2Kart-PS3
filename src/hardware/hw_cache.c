@@ -294,6 +294,18 @@ static const INT32 format2bpp[16] =
 	2, //14 GR_TEXFMT_AP_88
 };
 
+#ifdef _PS3
+// 2026-09-06 -- compteurs de conversion RGBA, pour chiffrer le cout du chemin
+// OpenGL au demarrage. MakeBlock() est l'endroit ou un patch 8 bits devient un
+// bloc RGBA (4 octets par pixel) dans la zone. R_AddSkins les lit pour dire
+// combien de conversions et combien d'octets chaque skin coute.
+//
+// Purement observationnel : deux increments, aucun changement de comportement.
+// A retirer avec les autres sondes (voir PLAN_20260906.md, section E).
+UINT32 ps3_hwr_conv_count = 0;
+UINT64 ps3_hwr_conv_bytes = 0;
+#endif
+
 static UINT8 *MakeBlock(GLMipmap_t *grMipmap)
 {
 	UINT8 *block;
@@ -302,6 +314,10 @@ static UINT8 *MakeBlock(GLMipmap_t *grMipmap)
 
 	bpp =  format2bpp[grMipmap->grInfo.format];
 	block = Z_Malloc(blocksize*bpp, PU_HWRCACHE, &(grMipmap->grInfo.data));
+#ifdef _PS3
+	ps3_hwr_conv_count++;
+	ps3_hwr_conv_bytes += (UINT64)blocksize * (UINT64)bpp;
+#endif
 
 	switch (bpp)
 	{
