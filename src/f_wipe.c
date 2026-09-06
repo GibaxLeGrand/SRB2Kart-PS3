@@ -38,6 +38,27 @@
 #define NOWIPE // do not enable wipe image post processing for ARM, SH and MIPS CPUs
 #endif
 
+// 2026-09-06 -- pas de wipe sur PS3 en mode materiel, tant que
+// glCopyTexImage2D n'est pas reellement implemente.
+//
+// Le wipe capture l'ecran avec pglCopyTexImage2D puis redessine la texture
+// obtenue. Notre couche RSX (ps3/rsxgl/rsxgl_glapi.c) laisse cette entree en
+// souche : la texture n'est donc jamais allouee, et F_DoWipe se bloque dessus.
+// Mesure sous RPCS3 le 06/09 : le demarrage atteint "W6 after wait loop, before
+// F_DoWipe" et n'en ressort pas.
+//
+// C'est exactement le blocage n°4 du portage PS Vita, ou glCopyTexImage2D est
+// un no-op de vitaGL ; leur correctif est le meme -- desactiver les wipes en
+// attendant. Les retablir demandera d'implementer la copie du tampon de
+// couleur, et ce drapeau tombera de lui-meme.
+//
+// Le build LOGICIEL n'est pas concerne : HWRENDER n'y est pas defini.
+#if defined(_PS3) && defined(HWRENDER) && !defined(PS3_HAVE_COPYTEXIMAGE)
+#ifndef NOWIPE
+#define NOWIPE
+#endif
+#endif
+
 #ifdef _PS3
 #include <stdio.h>
 #include <sys/systime.h> // sysGetCurrentTime -- real microsecond timing (see i_video_ps3_gcm.c for why not I_GetPreciseTime)
