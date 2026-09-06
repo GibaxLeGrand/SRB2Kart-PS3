@@ -275,6 +275,27 @@ void glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
 //                          LES 14 RESTANTES
 // ==========================================================================
 
+// --- Les trois formes ES attendues par ps3/glcompat/GL/gl.h -----------------
+//
+// glcompat rebranche <GL/gl.h> sur les noms ES : il appelle glClearDepthf,
+// glDepthRangef et glColor4ub la ou le moteur ecrit glClearDepth, glDepthRange
+// et glColor4ubv. Ces trois-la doivent donc exister aussi.
+
+void glClearDepthf(GLclampf d)
+{
+	ps3gl_ClearDepth((GLclampd)d);
+}
+
+void glDepthRangef(GLclampf n, GLclampf f)
+{
+	ps3gl_DepthRange((GLclampd)n, (GLclampd)f);
+}
+
+void glColor4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a)
+{
+	ps3gl_Color4ub(r, g, b, a);
+}
+
 // --- Tampons de sommets : neutralises ---------------------------------------
 //
 // SRB2 cree un VBO par frame de modele (CreateModelVBOs). Le portage Vita a

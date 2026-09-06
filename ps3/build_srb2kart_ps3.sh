@@ -54,7 +54,12 @@ if [ -n "$GLRENDER" ]; then
 	# au lieu de lier -lfs_stub, ce qui supprime l'import du module PRX sys_fs.
 	# C'est la seule difference d'imports PRX entre l'EBOOT OpenGL et l'EBOOT
 	# logiciel, et le logiciel est celui qui demarre sur console reelle.
-	if [ -n "$LOCALCELLFS" ]; then
+	# 2026-09-06 -- RSXGL=1 : couche GL maison sur RSX (ps3/rsxgl/), reprise
+	# d'IoQuake3-PS3, a la place de PSGL. Voir PLAN_RSX_20260906.md.
+	if [ -n "$RSXGL" ]; then
+		HW_FLAGS="$HW_FLAGS RSXGL=1 PS3_RSXGL=$SCRIPT_DIR/rsxgl"
+		echo "=== renderer : OpenGL sur RSX (couche maison) ==="
+	elif [ -n "$LOCALCELLFS" ]; then
 		HW_FLAGS="$HW_FLAGS PS3_LOCAL_CELLFS=1"
 		echo "=== renderer : OpenGL (PSGL), cellFs local (pas de sys_fs) ==="
 	else

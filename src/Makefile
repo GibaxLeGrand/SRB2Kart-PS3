@@ -882,6 +882,12 @@ $(OBJDIR)/%.o: sdl/macosx/%.c
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 endif
 
+# 2026-09-06 -- couche GL sur RSX (ps3/rsxgl/), reprise d'IoQuake3-PS3.
+# Ses sources vivent hors de src/, d'ou cette regle dediee.
+$(OBJDIR)/%.o: ../ps3/rsxgl/%.c
+	@echo compiling $<...
+	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
+
 $(OBJDIR)/%.o: hardware/%.c
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 

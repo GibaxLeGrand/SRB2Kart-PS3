@@ -46,7 +46,9 @@ difficulté : `glCopyTexImage2D`**.
 | `ps3gl_shader_data.h` | microcode des shaders, précompilé |
 | `GL/gl.h` | en-tête GL d'IoQuake3, pour **cette couche uniquement** |
 | **`rsxgl_glapi.c`** | **passerelle `gl*` → `ps3gl_*`** — les 47 enveloppes sont générées depuis les prototypes réels, pas recopiées |
-| **`rsxgl_glue.c`** | le seul symbole que la couche attend de son hôte : `ps3_log()` |
+
+Le seul symbole que la couche attend de son hôte, `ps3_log()`, est fourni
+par `src/sdl/ogl_rsx.c` — inutile d'avoir un fichier de colle séparé.
 
 Le chemin SPU (`ps3gl_spu.c`) n'est **pas** repris : aucun autre fichier de la
 couche ne le référence.
