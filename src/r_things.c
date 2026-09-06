@@ -3283,7 +3283,9 @@ next_token:
 			// So just let the function in the while loop take care of it for us.
 		}
 
+		ps3mark3("SKC avant FlushTranslationColormapCache", (UINT32)numskins, 0, 0);
 		R_FlushTranslationColormapCache();
+		ps3mark3("SKC apres FlushTranslationColormapCache", (UINT32)numskins, 0, 0);
 
 		ps3skin((UINT32)numskins, skin->name);
 		CONS_Printf(M_GetText("Added skin '%s'\n"), skin->name);
@@ -3297,11 +3299,17 @@ next_token:
 		Forceskin_cons_t[numskins+1].strvalue = skins[numskins].name;
 
 		// add face graphics
+		ps3mark3("SKF avant ST_LoadFaceGraphics", (UINT32)numskins, 0, 0);
 		ST_LoadFaceGraphics(skin->facerank, skin->facewant, skin->facemmap, numskins);
+		ps3mark3("SKF apres ST_LoadFaceGraphics", (UINT32)numskins, 0, 0);
 
 #ifdef HWRENDER
 		if (rendermode == render_opengl)
+		{
+			ps3mark3("SKM avant HWR_AddPlayerMD2", (UINT32)numskins, 0, 0);
 			HWR_AddPlayerMD2(numskins);
+			ps3mark3("SKM apres HWR_AddPlayerMD2", (UINT32)numskins, 0, 0);
+		}
 #endif
 
 		numskins++;
