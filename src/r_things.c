@@ -77,12 +77,26 @@ static char *ps3_txt(char *at, const char *end, const char *t)
 // ~0,2 s attendu contre plus de 5 minutes observees sur materiel) : c'est un
 // vrai blocage. SKIN 1 tails pese 85 conversions sur 101, donc la fenetre a
 // couvrir est R_AddSingleSpriteDef pendant le premier skin.
+// 2026-09-06 -- la sonde SPD ne parle QUE pendant R_AddSkins.
+//
+// Premiere version : le marqueur etait pose dans R_AddSingleSpriteDef sans
+// distinguer ses deux appelants. Or il est aussi appele pour chaque sprite de
+// R_AddSpriteDefs, ce qui a produit 145361 ecritures fichier -- ~290 s de
+// journalisation a lui seul, soit exactement la duree qu on cherchait a
+// expliquer. Le lancement ne mesurait plus que la sonde.
+//
+// Le drapeau ci-dessous limite la trace a la fenetre qui nous interesse.
+static int ps3_in_addskins = 0;
+
 static void ps3mark3(const char *label, UINT32 a1, UINT32 a2, UINT32 a3)
 {
 	char line[128];
 	char *at = line;
 	const char *end = line + sizeof(line) - 1;
 	FILE *f;
+
+	if (!ps3_in_addskins)
+		return;
 
 	at = ps3_txt(at, end, label);
 	at = ps3_txt(at, end, " ");
@@ -414,7 +428,7 @@ static boolean R_AddSingleSpriteDef(const char *sprname, spritedef_t *spritedef,
 	ps3mark3("SPD debut start/end/wad", (UINT32)startlump, (UINT32)endlump, (UINT32)wadnum);
 	for (l = startlump; l < endlump; l++)
 	{
-		if ((l & 7) == 0)
+		if ((l & 63) == 0)
 			ps3mark3("SPD l", (UINT32)l, (UINT32)endlump, 0);
 		if (memcmp(lumpinfo[l].name,sprname,4)==0)
 		{
@@ -780,7 +794,9 @@ void R_InitSprites(void)
 	for (i = 0; i < numwadfiles; i++)
 	{
 		ps3spmsg("SK3 avant R_AddSkins");
+		ps3_in_addskins = 1;
 		R_AddSkins((UINT16)i);
+		ps3_in_addskins = 0;
 		ps3spmsg("SK4 apres R_AddSkins");
 	}
 	ps3spmsg("SK5 skins termines");
