@@ -1,0 +1,221 @@
+From 2d3d285613efc104096341514e36826ed3124fa9 Mon Sep 17 00:00:00 2001
+From: GibaxLeGrand <48137851+GibaxLeGrand@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 20:40:12 +0200
+Subject: [PATCH 2/2] libPSGL: borner l'attente d'etiquette de
+ psgl_device_create, et la tracer
+
+Mesure sur vraie PS3 (SRB2Kart, paquet H du 05/09) : psgl_device_create ne
+revenait jamais. La trace du jeu s'arretait juste apres psglInit, et cela
+independamment des dimensions demandees -- l'appel se faisait avec
+parameters->enable a 0.
+
+psgl_wait_rsx_idle etait la seule boucle non bornee de la fonction :
+
+    cellGcmFlush(gcm);
+    while (*(volatile uint32_t *)cellGcmGetLabelAddress(PSGL_LABEL_INDEX) != label)
+        sys_timer_usleep(30);
+
+Elle attend que le RSX ecrive une etiquette, et elle est appelee AVANT
+videoConfigure, donc avant qu'un tampon d'affichage existe. Sous RPCS3 le RSX
+consomme le FIFO de toute facon et l'etiquette arrive ; sur materiel reel elle
+n'arrivait pas.
+
+L'attente est desormais bornee a 20 000 pas de 30 us (~600 ms) et renvoie 0 si
+elle renonce. A cet endroit le RSX n'a rien d'utile en vol -- cellGcmInit vient
+de tourner et aucun rendu n'a eu lieu -- donc renoncer est sans danger : au
+pire on poursuit sans la garantie d'inactivite.
+
+Ajoute aussi psgl_trace_hook, un pointeur de fonction nul par defaut auquel
+l'application peut brancher sa propre journalisation, et dix marqueurs D1..D10
+dans psgl_device_create. Sur console reelle il n'existe aucun journal
+d'emulateur : c'est la seule visibilite possible. Le formatage est fait a la
+main plutot qu'avec vsnprintf, parce que libPSGL n'inclut volontairement ni
+<stdio.h> ni <stdarg.h> -- les en-tetes enveloppes de PS3DK refusent d'etre
+atteints deux fois.
+
+A noter pour qui reconstruira cette bibliotheque : le Makefile passe a la fois
+-I../include et -I$(PS3DK)/ppu/include, or l'arbre installe contient une copie
+des memes en-tetes enveloppes. Leur #include_next retombe alors sur l'autre
+copie et leur garde-fou se declenche. Compiler avec le seul
+-I$(PS3DK)/ppu/include (qui est un sur-ensemble) contourne le probleme.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ sdk/libPSGL/src/psgl_context.c | 91 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 86 insertions(+), 5 deletions(-)
+
+diff --git a/sdk/libPSGL/src/psgl_context.c b/sdk/libPSGL/src/psgl_context.c
+index 8d561bf..76ac2e4 100644
+--- a/sdk/libPSGL/src/psgl_context.c
++++ b/sdk/libPSGL/src/psgl_context.c
+@@ -22,7 +22,6 @@
+ 
+ #include <malloc.h>
+ #include <math.h>
+-#include <stdio.h>
+ #include <ppu-types.h>
+ #include <rsx/rsx.h>
+ #include <stdlib.h>
+@@ -37,6 +36,47 @@
+ #define PSGL_HOST_ALIGNMENT    (1024u * 1024u)
+ #define PSGL_CLIENT_ARRAY_ALIGNMENT PSGL_HOST_ALIGNMENT
+ #define PSGL_LABEL_INDEX       255u
++
++/* 2026-09-05 -- crochet de trace.
++ *
++ * Sur vraie console il n'existe aucun journal d'emulateur : la seule visibilite
++ * est un fichier ecrit par le jeu. psgl_trace_hook laisse l'application brancher
++ * sa propre fonction (SRB2Kart y met ps3gl_log, qui ecrit psdebugC.txt), et
++ * coute un test de pointeur nul quand personne ne l'utilise.
++ */
++void (*psgl_trace_hook)(const char *) = NULL;
++
++#define PSGL_TRACE(msg) do { if (psgl_trace_hook) psgl_trace_hook(msg); } while (0)
++
++/* Formatage maison : libPSGL n'inclut volontairement ni <stdio.h> ni
++ * <stdarg.h> (les en-tetes enveloppes de PS3DK refusent d'etre atteints deux
++ * fois), et une trace n'a pas besoin de printf. On assemble un libelle suivi
++ * de quatre entiers au plus.
++ */
++static char *psgl_trace_u32(char *at, const char *end, uint32_t v)
++{
++    char digits[10];
++    int n = 0;
++    if (v == 0u) { if (at < end) *at++ = '0'; return at; }
++    while (v && n < (int)sizeof(digits)) { digits[n++] = (char)('0' + (v % 10u)); v /= 10u; }
++    while (n-- > 0 && at < end) *at++ = digits[n];
++    return at;
++}
++
++static void psgl_trace_vals(const char *label, const uint32_t *vals, int count)
++{
++    char line[128];
++    char *at = line;
++    const char *end = line + sizeof(line) - 1;
++    int i;
++    while (*label && at < end) *at++ = *label++;
++    for (i = 0; i < count; i++) {
++        if (at < end) *at++ = ' ';
++        at = psgl_trace_u32(at, end, vals[i]);
++    }
++    *at = '\0';
++    if (psgl_trace_hook) psgl_trace_hook(line);
++}
+ #define PSGL_BUFFER_ALIGNMENT  64u
+ /* 2026-09-03 -- taille normale retablie apres un test causal.
+    Le ring a ete reduit a 256 Kio (1/16) pour le faire boucler bien plus tot :
+@@ -1433,16 +1473,40 @@ static void psgl_emit_raster(PSGLcontext *context)
+     context->dirty &= ~PSGL_DIRTY_RASTER;
+ }
+ 
+-static void psgl_wait_rsx_idle(CellGcmContextData *gcm)
++/* 2026-09-05 -- attente BORNEE (elle etait infinie).
++ *
++ * Mesure sur vraie PS3 (SRB2Kart, paquet H) : psgl_device_create ne revenait
++ * jamais. La trace du jeu s'arretait juste apres psglInit, et cette boucle est
++ * la seule non bornee de la fonction.
++ *
++ * Elle attend que le RSX ecrive une etiquette, et elle est appelee AVANT
++ * videoConfigure -- donc avant qu'un tampon d'affichage existe. Sous RPCS3 le
++ * RSX consomme le FIFO de toute facon et l'etiquette arrive ; sur materiel reel
++ * elle n'arrivait pas, et on bouclait indefiniment.
++ *
++ * A cet endroit le RSX n'a rien d'utile en vol -- on vient d'initialiser gcm et
++ * aucun rendu n'a eu lieu -- donc renoncer est sans danger : au pire on
++ * poursuit sans la garantie d'inactivite. Renvoie 1 si l'etiquette est arrivee,
++ * 0 si on a renonce, pour que l'appelant puisse le journaliser.
++ */
++#define PSGL_WAIT_IDLE_STEP_US   30u
++#define PSGL_WAIT_IDLE_MAX_STEPS 20000u  /* ~600 ms */
++
++static int psgl_wait_rsx_idle(CellGcmContextData *gcm)
+ {
+     uint32_t label = 1u;
++    uint32_t spins = 0u;
+     cellGcmSetWriteBackEndLabel(gcm, PSGL_LABEL_INDEX, label);
+     cellGcmSetWaitLabel(gcm, PSGL_LABEL_INDEX, label);
+     label++;
+     cellGcmSetWriteBackEndLabel(gcm, PSGL_LABEL_INDEX, label);
+     cellGcmFlush(gcm);
+-    while (*(volatile uint32_t *)cellGcmGetLabelAddress(PSGL_LABEL_INDEX) != label)
+-        sys_timer_usleep(30);
++    while (*(volatile uint32_t *)cellGcmGetLabelAddress(PSGL_LABEL_INDEX) != label) {
++        if (++spins >= PSGL_WAIT_IDLE_MAX_STEPS)
++            return 0;
++        sys_timer_usleep(PSGL_WAIT_IDLE_STEP_US);
++    }
++    return 1;
+ }
+ 
+ static void psgl_init_flip_labels(PSGLdevice *device)
+@@ -2654,7 +2718,9 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+ {
+     uint32_t samples_x;
+     uint32_t samples_y;
++    PSGL_TRACE("D1 psgl_device_create entree");
+     if (!psgl_context_init_system(NULL)) return NULL;
++    PSGL_TRACE("D2 init_system ok");
+ 
+     videoState state;
+     videoResolution resolution;
+@@ -2665,8 +2731,14 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+         state.state != VIDEO_STATE_DISABLED) {
+         return NULL;
+     }
++    { uint32_t v[2]; v[0] = (uint32_t)state.state;
++      v[1] = (uint32_t)state.displayMode.resolution;
++      psgl_trace_vals("D3 videoGetState ok, state/resolution:", v, 2); }
+     if (videoGetResolution(state.displayMode.resolution, &resolution) != 0)
+         return NULL;
++    { uint32_t v[2]; v[0] = (uint32_t)resolution.width;
++      v[1] = (uint32_t)resolution.height;
++      psgl_trace_vals("D4 videoGetResolution:", v, 2); }
+ 
+     PSGLdevice *device = (PSGLdevice *)calloc(1u, sizeof(*device));
+     if (!device) return NULL;
+@@ -2708,11 +2780,17 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+     config.pitch = device->pitch;
+     config.aspect = state.displayMode.aspect;
+ 
+-    psgl_wait_rsx_idle(CELL_GCM_CURRENT);
++    { uint32_t v[5]; v[0] = (uint32_t)device->width; v[1] = (uint32_t)device->height;
++      v[2] = (uint32_t)device->render_width; v[3] = (uint32_t)device->render_height;
++      v[4] = device->pitch;
++      psgl_trace_vals("D5 dims w/h, rendu w/h, pitch:", v, 5); }
++    { uint32_t v[1]; v[0] = (uint32_t)psgl_wait_rsx_idle(CELL_GCM_CURRENT);
++      psgl_trace_vals("D6 wait_rsx_idle ->", v, 1); }
+     if (videoConfigure(VIDEO_PRIMARY, &config, NULL, 0) != 0) {
+         free(device);
+         return NULL;
+     }
++    PSGL_TRACE("D7 videoConfigure ok");
+     cellGcmResetFlipStatus();
+ 
+     for (uint32_t i = 0; i < device->frame_count; i++) {
+@@ -2726,6 +2804,7 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+         }
+     }
+ 
++    PSGL_TRACE("D8 framebuffers alloues");
+     uint32_t depth_size = device->depth_pitch * (uint32_t)device->storage_height;
+     device->depth_address = (uint32_t *)rsxMemalign(64u, depth_size);
+     if (!device->depth_address ||
+@@ -2734,6 +2813,7 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+         return NULL;
+     }
+ 
++    PSGL_TRACE("D9 tampon de profondeur alloue");
+     device->frame_on_display = 0u;
+     device->flip_target_frame = 0u;
+     device->flip_pending = 0u;
+@@ -2742,6 +2822,7 @@ PSGLdevice *psgl_device_create(const PSGLdeviceParameters *parameters)
+     cellGcmSetVBlankHandler(psgl_vblank_trampoline);
+     cellGcmSetFlipHandler(psgl_flip_trampoline);
+     device->initialized = 1u;
++    PSGL_TRACE("D10 peripherique pret");
+     return device;
+ }
+ 
+-- 
+2.34.1
+
