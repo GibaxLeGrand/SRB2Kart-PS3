@@ -71,6 +71,32 @@ static char *ps3_txt(char *at, const char *end, const char *t)
 	return at;
 }
 
+// 2026-09-06 -- sonde generique pour pister le blocage DANS un skin.
+//
+// La mesure sous RPCS3 a ecarte le cout des E/S (101 conversions, 4 Mo, soit
+// ~0,2 s attendu contre plus de 5 minutes observees sur materiel) : c'est un
+// vrai blocage. SKIN 1 tails pese 85 conversions sur 101, donc la fenetre a
+// couvrir est R_AddSingleSpriteDef pendant le premier skin.
+static void ps3mark3(const char *label, UINT32 a1, UINT32 a2, UINT32 a3)
+{
+	char line[128];
+	char *at = line;
+	const char *end = line + sizeof(line) - 1;
+	FILE *f;
+
+	at = ps3_txt(at, end, label);
+	at = ps3_txt(at, end, " ");
+	at = ps3_u32(at, end, a1);
+	at = ps3_txt(at, end, " ");
+	at = ps3_u32(at, end, a2);
+	at = ps3_txt(at, end, " ");
+	at = ps3_u32(at, end, a3);
+	*at = 0;
+
+	f = fopen(PS3_DebugPath("psdebug4.txt"), "a");
+	if (f) { fputs(line, f); fputc(10, f); fflush(f); fclose(f); }
+}
+
 static void ps3skin(UINT32 idx, const char *name)
 {
 	static precise_t last = 0;
@@ -149,6 +175,7 @@ static void ps3sp(unsigned cur, unsigned total)
 #define ps3sp(cur, total)
 #define ps3spmsg(msg)
 #define ps3skin(idx, name)
+#define ps3mark3(label, a1, a2, a3)
 #endif
 #include "p_slopes.h"
 #include "dehacked.h" // get_number (for thok)
@@ -384,8 +411,11 @@ static boolean R_AddSingleSpriteDef(const char *sprname, spritedef_t *spritedef,
 	if (endlump > wadfiles[wadnum]->numlumps)
 		endlump = wadfiles[wadnum]->numlumps;
 
+	ps3mark3("SPD debut start/end/wad", (UINT32)startlump, (UINT32)endlump, (UINT32)wadnum);
 	for (l = startlump; l < endlump; l++)
 	{
+		if ((l & 7) == 0)
+			ps3mark3("SPD l", (UINT32)l, (UINT32)endlump, 0);
 		if (memcmp(lumpinfo[l].name,sprname,4)==0)
 		{
 			frame = R_Char2Frame(lumpinfo[l].name[4]);
